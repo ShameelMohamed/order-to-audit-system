@@ -1,6 +1,17 @@
 // Strict Decimal / Paisa Precision Mathematics
 // All amounts and quantities are treated without floating point errors
 
+export type UserRole = 'salesman' | 'admin' | 'production' | 'auditor' | 'owner';
+
+export interface User {
+  id: string;
+  username: string;
+  name: string;
+  role: UserRole;
+  password?: string;
+  badge: string;
+}
+
 export interface Customer {
   id: number;
   name: string;
@@ -16,6 +27,7 @@ export interface Product {
   pack_size: string; // e.g. '200 g'
   selling_price: number; // e.g. 50.00
   gst_rate: number; // e.g. 5.00
+  hsn_code: string; // e.g. '19059040'
 }
 
 export interface RawMaterial {
@@ -24,6 +36,7 @@ export interface RawMaterial {
   unit: string; // 'kg', 'litre', 'piece'
   current_stock: number;
   avg_price: number;
+  reorder_level: number;
 }
 
 export interface BillOfMaterial {
@@ -41,7 +54,14 @@ export interface InventoryLedgerEntry {
   item_name?: string;
   change_qty: number; // positive = added/produced/purchased, negative = consumed/dispatched
   unit: string;
-  reference_type: 'OPENING_BALANCE' | 'PURCHASE' | 'PRODUCTION_ISSUE' | 'PRODUCTION_OUTPUT' | 'SALE_DISPATCH' | 'ADJUSTMENT';
+  reference_type:
+    | 'OPENING_BALANCE'
+    | 'PURCHASE'
+    | 'PRODUCTION_ISSUE'
+    | 'PRODUCTION_OUTPUT'
+    | 'SALE_DISPATCH'
+    | 'CREDIT_NOTE_RESTOCK'
+    | 'ADJUSTMENT';
   reference_id?: number | string;
   notes?: string;
   created_at: string;
@@ -75,11 +95,26 @@ export interface Invoice {
   customer_name: string;
   state: string;
   is_interstate: boolean;
+  hsn_code: string;
   taxable_value: number;
   cgst: number;
   sgst: number;
   igst: number;
   total_amount: number;
+  status: 'active' | 'cancelled';
+  credit_note_number?: string;
+  created_at: string;
+}
+
+export interface CreditNote {
+  id: number;
+  credit_note_number: string;
+  invoice_id: number;
+  invoice_number: string;
+  customer_id: number;
+  customer_name: string;
+  amount: number;
+  reason: string;
   created_at: string;
 }
 
@@ -87,6 +122,8 @@ export interface ProductionRun {
   id: number;
   product_id: number;
   product_name: string;
+  batch_number: string;
+  expiry_date: string;
   batch_count: number; // standard multiplier, e.g. 1
   flour_used: number; // standard 40
   oil_used: number; // standard 10, actual 10.5

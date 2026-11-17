@@ -7,6 +7,7 @@ import {
   Order,
   OrderItem,
   Invoice,
+  CreditNote,
   ProductionRun,
   Payment,
   AuditLog,
@@ -23,6 +24,7 @@ class Store {
   inventoryLedger: InventoryLedgerEntry[] = [];
   orders: Order[] = [];
   invoices: Invoice[] = [];
+  creditNotes: CreditNote[] = [];
   productionRuns: ProductionRun[] = [];
   payments: Payment[] = [];
   auditLogs: AuditLog[] = [];
@@ -30,6 +32,7 @@ class Store {
   private nextLedgerId = 1;
   private nextOrderId = 1;
   private nextInvoiceId = 1;
+  private nextCreditNoteId = 1;
   private nextProductionId = 1;
   private nextPaymentId = 1;
   private nextAuditId = 1;
@@ -64,23 +67,32 @@ class Store {
         id: 1,
         name: 'Murukku 200 g',
         pack_size: '200 g',
-        selling_price: 50.00,
-        gst_rate: 5.00,
+        selling_price: 50.0,
+        gst_rate: 5.0,
+        hsn_code: '19059040',
+      },
+      {
+        id: 2,
+        name: 'Murukku 500 g',
+        pack_size: '500 g',
+        selling_price: 120.0,
+        gst_rate: 5.0,
+        hsn_code: '19059040',
       },
     ];
 
     // Opening stock per Section 5:
-    // Flour 100 kg @ 42
-    // Oil 30 L @ 140
-    // Spice mix 5 kg @ 200
-    // Pouches 500 pcs @ 2.50
-    // Cartons 30 pcs @ 15
+    // Flour 100 kg @ 42, reorder 50
+    // Oil 30 L @ 140, reorder 15
+    // Spice mix 5 kg @ 200, reorder 2
+    // Pouches 500 pcs @ 2.50, reorder 200
+    // Cartons 30 pcs @ 15, reorder 15
     this.rawMaterials = [
-      { id: 1, name: 'Flour', unit: 'kg', current_stock: 100, avg_price: 42.00 },
-      { id: 2, name: 'Cooking oil', unit: 'litre', current_stock: 30, avg_price: 140.00 },
-      { id: 3, name: 'Salt and spice mix', unit: 'kg', current_stock: 5, avg_price: 200.00 },
-      { id: 4, name: '200 g pouch', unit: 'piece', current_stock: 500, avg_price: 2.50 },
-      { id: 5, name: 'Carton (holds 20 packets)', unit: 'piece', current_stock: 30, avg_price: 15.00 },
+      { id: 1, name: 'Flour', unit: 'kg', current_stock: 100, avg_price: 42.0, reorder_level: 50 },
+      { id: 2, name: 'Cooking oil', unit: 'litre', current_stock: 30, avg_price: 140.0, reorder_level: 15 },
+      { id: 3, name: 'Salt and spice mix', unit: 'kg', current_stock: 5, avg_price: 200.0, reorder_level: 2 },
+      { id: 4, name: '200 g pouch', unit: 'piece', current_stock: 500, avg_price: 2.5, reorder_level: 200 },
+      { id: 5, name: 'Carton (holds 20 packets)', unit: 'piece', current_stock: 30, avg_price: 15.0, reorder_level: 15 },
     ];
 
     // BOM for Murukku 200 g (1 batch = 200 packets expected)
@@ -90,6 +102,10 @@ class Store {
       { id: 3, product_id: 1, raw_material_id: 3, standard_qty: 1.2, expected_output_packets: 200 },
       { id: 4, product_id: 1, raw_material_id: 4, standard_qty: 200, expected_output_packets: 200 },
       { id: 5, product_id: 1, raw_material_id: 5, standard_qty: 10, expected_output_packets: 200 },
+      // BOM for Murukku 500g variant
+      { id: 6, product_id: 2, raw_material_id: 1, standard_qty: 50, expected_output_packets: 100 },
+      { id: 7, product_id: 2, raw_material_id: 2, standard_qty: 12.5, expected_output_packets: 100 },
+      { id: 8, product_id: 2, raw_material_id: 3, standard_qty: 1.5, expected_output_packets: 100 },
     ];
 
     this.inventoryLedger = [
@@ -104,6 +120,7 @@ class Store {
 
     this.orders = [];
     this.invoices = [];
+    this.creditNotes = [];
     this.productionRuns = [];
     this.payments = [];
     this.auditLogs = [];
@@ -111,6 +128,7 @@ class Store {
     this.nextLedgerId = 7;
     this.nextOrderId = 1;
     this.nextInvoiceId = 1;
+    this.nextCreditNoteId = 1;
     this.nextProductionId = 1;
     this.nextPaymentId = 1;
     this.nextAuditId = 1;
@@ -186,6 +204,8 @@ class Store {
     cartonsUsed: number; // e.g. 9
     labourCost: number; // e.g. 1200
     overheadCost: number; // e.g. 600
+    batchNumber?: string;
+    expiryDate?: string;
   }) {
     const product = this.products.find((p) => p.id === data.productId);
     if (!product) throw new Error('Product not found');
@@ -195,11 +215,6 @@ class Store {
     const oilVariancePct = round2(((data.oilUsed - 10) / 10) * 100); // +5%
 
     // Calculate Raw Material Consumption cost based on valuation (Weighted Average / Purchase Rates)
-    // Flour: 40 kg issued. Opening was 100 kg @ 42, purchased 60 kg @ 45. Weighted avg = 43.125
-    // Oil: 10.5 L @ 140 = 1,470
-    // Spice: 1.2 kg @ 200 = 240
-    // Pouches: (188 used + 6 damaged = 194 total consumed) @ 2.50 = 485
-    // Cartons: 9 used @ 15 = 135
     const flourMat = this.rawMaterials.find((r) => r.id === 1)!;
     const oilMat = this.rawMaterials.find((r) => r.id === 2)!;
     const spiceMat = this.rawMaterials.find((r) => r.id === 3)!;
@@ -218,12 +233,26 @@ class Store {
     const totalProductionCost = totalRawCost + data.labourCost + data.overheadCost;
     const costPerPacket = round2(totalProductionCost / data.actualOutputPackets);
 
+    // Batch and Expiry calculations
+    const today = new Date();
+    const batchNo =
+      data.batchNumber ||
+      `BATCH-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}-${String(
+        this.nextProductionId
+      ).padStart(3, '0')}`;
+
+    const expDate = new Date();
+    expDate.setDate(expDate.getDate() + 90); // 90 days shelf-life for South Indian packaged snacks
+    const expiryStr = data.expiryDate || expDate.toISOString().split('T')[0];
+
     // Save production run
     const runId = this.nextProductionId++;
     const run: ProductionRun = {
       id: runId,
       product_id: data.productId,
       product_name: product.name,
+      batch_number: batchNo,
+      expiry_date: expiryStr,
       batch_count: 1,
       flour_used: data.flourUsed,
       oil_used: data.oilUsed,
@@ -261,7 +290,7 @@ class Store {
       unit: 'packet',
       reference_type: 'PRODUCTION_OUTPUT',
       reference_id: runId,
-      notes: `Batch completed. Produced ${data.actualOutputPackets} pkts. Yield var: ${yieldVariancePct}%`,
+      notes: `Batch ${batchNo} completed. Exp: ${expiryStr}. Output: ${data.actualOutputPackets} pkts. Yield var: ${yieldVariancePct}%`,
       created_at: new Date().toISOString(),
     });
 
@@ -272,7 +301,7 @@ class Store {
     pouchMat.current_stock = this.getRawMaterialStock(4);
     cartonMat.current_stock = this.getRawMaterialStock(5);
 
-    this.logAudit('PRODUCTION_RUN', 'supervisor', 'production_run', runId, `Produced ${data.actualOutputPackets} pkts of ${product.name}`);
+    this.logAudit('PRODUCTION_RUN', 'supervisor', 'production_run', runId, `Produced ${data.actualOutputPackets} pkts of ${product.name} (Batch: ${batchNo})`);
     return run;
   }
 
@@ -333,7 +362,7 @@ class Store {
 
     // Determine place of supply: Factory is in Tamil Nadu
     const isInterstate = customer.state.trim().toLowerCase() !== 'tamil nadu';
-    
+
     // Taxable value
     const taxablePaisa = order.items.reduce((acc, it) => acc + toPaisa(it.quantity * it.unit_price), 0);
     const taxable = fromPaisa(taxablePaisa);
@@ -351,11 +380,13 @@ class Store {
       customer_name: customer.name,
       state: customer.state,
       is_interstate: isInterstate,
+      hsn_code: '19059040',
       taxable_value: gstCalc.taxable,
       cgst: gstCalc.cgst,
       sgst: gstCalc.sgst,
       igst: gstCalc.igst,
       total_amount: gstCalc.total,
+      status: 'active',
       created_at: new Date().toISOString(),
     };
 
@@ -367,6 +398,61 @@ class Store {
 
     this.logAudit('INVOICE_GENERATED', 'admin', 'invoice', invoiceId, `Generated ${invNumber} for ${customer.name}: ₹${gstCalc.total}`);
     return invoice;
+  }
+
+  // Cancel Invoice via Credit Note (Section 7 Audit requirement: posted invoices are cancelled with credit note, never deleted)
+  cancelInvoiceWithCreditNote(invoiceId: number, reason: string = 'Customer return / order cancelled') {
+    const inv = this.invoices.find((i) => i.id === invoiceId);
+    if (!inv) throw new Error('Invoice not found');
+    if (inv.status === 'cancelled') throw new Error('Invoice is already cancelled');
+
+    const customer = this.customers.find((c) => c.id === inv.customer_id)!;
+    const order = this.orders.find((o) => o.id === inv.order_id);
+
+    const cnId = this.nextCreditNoteId++;
+    const currentYear = new Date().getFullYear();
+    const cnNumber = `CN/${currentYear}-${(currentYear + 1).toString().slice(2)}/${String(cnId).padStart(4, '0')}`;
+
+    const creditNote: CreditNote = {
+      id: cnId,
+      credit_note_number: cnNumber,
+      invoice_id: inv.id,
+      invoice_number: inv.invoice_number,
+      customer_id: customer.id,
+      customer_name: customer.name,
+      amount: inv.total_amount,
+      reason,
+      created_at: new Date().toISOString(),
+    };
+
+    this.creditNotes.push(creditNote);
+    inv.status = 'cancelled';
+    inv.credit_note_number = cnNumber;
+
+    // Deduct customer outstanding balance
+    customer.outstanding_balance = round2(customer.outstanding_balance - inv.total_amount);
+
+    // If order was already dispatched, restock finished goods via Credit Note Restock
+    if (order && order.status === 'dispatched') {
+      for (const it of order.items) {
+        this.inventoryLedger.push({
+          id: this.nextLedgerId++,
+          item_type: 'finished',
+          item_id: it.product_id,
+          item_name: it.product_name,
+          change_qty: it.quantity,
+          unit: 'packet',
+          reference_type: 'CREDIT_NOTE_RESTOCK',
+          reference_id: cnNumber,
+          notes: `Restocked against Credit Note ${cnNumber}`,
+          created_at: new Date().toISOString(),
+        });
+      }
+      order.status = 'rejected';
+    }
+
+    this.logAudit('CREDIT_NOTE_ISSUED', 'admin', 'credit_note', cnId, `Issued ${cnNumber} against ${inv.invoice_number} for ₹${inv.total_amount}`);
+    return creditNote;
   }
 
   // Dispatch goods
@@ -426,6 +512,87 @@ class Store {
 
     this.logAudit('PAYMENT_RECEIVED', 'admin', 'payment', paymentId, `Received ₹${data.amount} from ${customer.name}`);
     return payment;
+  }
+
+  // Generate Tally-Compatible XML
+  generateTallyXml(): string {
+    const activeInvoices = this.invoices.filter((i) => i.status === 'active');
+    let vouchersXml = '';
+
+    for (const inv of activeInvoices) {
+      const dateFormatted = inv.created_at.split('T')[0].replace(/-/g, '');
+      vouchersXml += `
+    <VOUCHER VCHTYPE="Sales" ACTION="Create">
+      <DATE>${dateFormatted}</DATE>
+      <VOUCHERNUMBER>${inv.invoice_number}</VOUCHERNUMBER>
+      <PARTYNAME>${inv.customer_name}</PARTYNAME>
+      <PARTYLEDGERNAME>${inv.customer_name}</PARTYLEDGERNAME>
+      <BASICBUYERNAME>${inv.customer_name}</BASICBUYERNAME>
+      <PLACEOFSUPPLY>${inv.state}</PLACEOFSUPPLY>
+      <ALLLEDGERENTRIES.LIST>
+        <LEDGERNAME>${inv.customer_name}</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+        <AMOUNT>-${inv.total_amount}</AMOUNT>
+      </ALLLEDGERENTRIES.LIST>
+      <ALLLEDGERENTRIES.LIST>
+        <LEDGERNAME>Sales - GST 5%</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${inv.taxable_value}</AMOUNT>
+      </ALLLEDGERENTRIES.LIST>
+      ${
+        inv.is_interstate
+          ? `<ALLLEDGERENTRIES.LIST>
+        <LEDGERNAME>Output IGST 5%</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${inv.igst}</AMOUNT>
+      </ALLLEDGERENTRIES.LIST>`
+          : `<ALLLEDGERENTRIES.LIST>
+        <LEDGERNAME>Output CGST 2.5%</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${inv.cgst}</AMOUNT>
+      </ALLLEDGERENTRIES.LIST>
+      <ALLLEDGERENTRIES.LIST>
+        <LEDGERNAME>Output SGST 2.5%</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${inv.sgst}</AMOUNT>
+      </ALLLEDGERENTRIES.LIST>`
+      }
+    </VOUCHER>`;
+    }
+
+    for (const p of this.payments) {
+      const dateFormatted = p.created_at.split('T')[0].replace(/-/g, '');
+      vouchersXml += `
+    <VOUCHER VCHTYPE="Receipt" ACTION="Create">
+      <DATE>${dateFormatted}</DATE>
+      <VOUCHERNUMBER>REC-${p.id}</VOUCHERNUMBER>
+      <PARTYNAME>${p.customer_name}</PARTYNAME>
+      <ALLLEDGERENTRIES.LIST>
+        <LEDGERNAME>Bank / Cash</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+        <AMOUNT>-${p.amount}</AMOUNT>
+      </ALLLEDGERENTRIES.LIST>
+      <ALLLEDGERENTRIES.LIST>
+        <LEDGERNAME>${p.customer_name}</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${p.amount}</AMOUNT>
+      </ALLLEDGERENTRIES.LIST>
+    </VOUCHER>`;
+    }
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <DATA>
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        ${vouchersXml}
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
   }
 
   // Execute the exact 9-step benchmark scenario
