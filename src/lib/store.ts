@@ -5,6 +5,7 @@ import {
   BillOfMaterial,
   InventoryLedgerEntry,
   Order,
+  OrderItem,
   Invoice,
   ProductionRun,
   Payment,
