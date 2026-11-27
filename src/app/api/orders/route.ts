@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { store } from '@/lib/store';
+import { persistOrderToNeon } from '@/lib/neon-sync';
 
 export async function GET() {
   try {
@@ -43,6 +44,9 @@ export async function POST(req: Request) {
       items,
       notes,
     });
+
+    // Persist to Neon
+    persistOrderToNeon(order).catch(() => {});
 
     return NextResponse.json({
       success: true,

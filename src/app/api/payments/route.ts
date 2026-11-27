@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { store } from '@/lib/store';
+import { persistPaymentToNeon } from '@/lib/neon-sync';
 
 export async function GET() {
   try {
@@ -31,6 +32,8 @@ export async function POST(req: Request) {
       paymentMode,
       referenceNo,
     });
+
+    persistPaymentToNeon(payment).catch(() => {});
 
     const customer = store.customers.find((c) => c.id === Number(customerId));
 

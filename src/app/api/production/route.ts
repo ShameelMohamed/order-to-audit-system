@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { store } from '@/lib/store';
+import { persistProductionRunToNeon } from '@/lib/neon-sync';
 
 export async function GET() {
   try {
@@ -39,6 +40,9 @@ export async function POST(req: Request) {
       labourCost: Number(labourCost),
       overheadCost: Number(overheadCost),
     });
+
+    // Persist to Neon
+    persistProductionRunToNeon(run).catch(() => {});
 
     return NextResponse.json({
       success: true,

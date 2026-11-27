@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { store } from '@/lib/store';
+import { persistInvoiceToNeon, persistDispatchToNeon } from '@/lib/neon-sync';
 
 export async function GET() {
   try {
@@ -23,6 +24,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, error: 'orderId is required' }, { status: 400 });
       }
       const invoice = store.approveAndInvoiceOrder(Number(orderId));
+      persistInvoiceToNeon(invoice).catch(() => {});
       return NextResponse.json({
         success: true,
         invoice,
@@ -33,6 +35,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, error: 'orderId is required' }, { status: 400 });
       }
       const order = store.dispatchOrder(Number(orderId));
+      persistDispatchToNeon(Number(orderId), order.items).catch(() => {});
       return NextResponse.json({
         success: true,
         order,
