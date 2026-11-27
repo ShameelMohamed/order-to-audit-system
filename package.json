@@ -10,6 +10,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@neon/config": "^1.14.8",
+    "@neon/env": "^2.1.11",
     "@neondatabase/serverless": "^1.2.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.74.0",
