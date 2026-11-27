@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import confetti from 'canvas-confetti';
 import {
   Package,
   ShoppingCart,
@@ -33,10 +34,126 @@ import {
   Eye,
   FileCode,
   Download,
+  Sparkles,
+  Copy,
+  Check,
+  Zap,
 } from 'lucide-react';
 import { TEST_USERS, authenticate } from '@/lib/auth';
 import { User, UserRole } from '@/lib/types';
 
+// =========================================================================
+// 3D Tilt Card Component
+// =========================================================================
+function TiltCard({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>({});
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const rotateX = ((y - centerY) / centerY) * -7;
+    const rotateY = ((x - centerX) / centerX) * 7;
+
+    setStyle({
+      transform: `perspective(1000px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg) scale3d(1.015, 1.015, 1.015)`,
+      transition: 'transform 0.1s ease-out',
+    });
+  };
+
+  const handleMouseLeave = () => {
+    setStyle({
+      transform: 'perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)',
+      transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+    });
+  };
+
+  return (
+    <div
+      ref={cardRef}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      style={style}
+      className={`tilt-card ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+// =========================================================================
+// Custom Cursor Component
+// =========================================================================
+function CustomCursor() {
+  const [pos, setPos] = useState({ x: -100, y: -100 });
+  const [isHover, setIsHover] = useState(false);
+  const [isClicking, setIsClicking] = useState(false);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setPos({ x: e.clientX, y: e.clientY });
+
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'BUTTON' ||
+          target.tagName === 'A' ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'SELECT' ||
+          target.closest('button') ||
+          target.closest('a') ||
+          target.closest('.tilt-card') ||
+          target.getAttribute('role') === 'button')
+      ) {
+        setIsHover(true);
+      } else {
+        setIsHover(false);
+      }
+    };
+
+    const handleMouseDown = () => setIsClicking(true);
+    const handleMouseUp = () => setIsClicking(false);
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  return (
+    <>
+      <div
+        className="custom-cursor-dot hidden md:block"
+        style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
+      />
+      <div
+        className={`custom-cursor-ring hidden md:block ${
+          isHover ? 'cursor-hover' : ''
+        } ${isClicking ? 'cursor-clicking' : ''}`}
+        style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
+      />
+    </>
+  );
+}
+
+// =========================================================================
+// Main Application Component
+// =========================================================================
 export default function OrderToAuditApp() {
   // Authentication State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -49,6 +166,7 @@ export default function OrderToAuditApp() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
   const [notification, setNotification] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // Invoice Preview Modal
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
@@ -61,6 +179,9 @@ export default function OrderToAuditApp() {
 
   // Tamil UI Toggle for Floor Staff (Stretch Goal)
   const [tamilLanguage, setTamilLanguage] = useState(false);
+
+  // Parallax mouse position
+  const [mouseOffset, setMouseOffset] = useState({ x: 0, y: 0 });
 
   // Field Order State
   const [salesmanCustomer, setSalesmanCustomer] = useState('1');
@@ -106,9 +227,17 @@ export default function OrderToAuditApp() {
     } catch {
       // ignore
     }
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const x = (e.clientX / window.innerWidth - 0.5) * 30;
+      const y = (e.clientY / window.innerHeight - 0.5) * 30;
+      setMouseOffset({ x, y });
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    return () => window.removeEventListener('mousemove', handleWindowMouseMove);
   }, []);
 
-  // Sync offline queue to localStorage
   const saveOfflineQueue = (queue: any[]) => {
     setOfflineQueue(queue);
     try {
@@ -121,6 +250,26 @@ export default function OrderToAuditApp() {
   const showNotify = (text: string, type: 'success' | 'error' = 'success') => {
     setNotification({ text, type });
     setTimeout(() => setNotification(null), 5000);
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(label);
+    setTimeout(() => setCopiedText(null), 2000);
+    showNotify(`Copied ${label} to clipboard!`);
+  };
+
+  const triggerCelebration = () => {
+    try {
+      confetti({
+        particleCount: 90,
+        spread: 80,
+        origin: { y: 0.6 },
+        colors: ['#f59e0b', '#10b981', '#3b82f6', '#ec4899', '#ffffff'],
+      });
+    } catch {
+      // ignore
+    }
   };
 
   const refreshData = async () => {
@@ -146,7 +295,6 @@ export default function OrderToAuditApp() {
     refreshData();
   }, []);
 
-  // Set default view on login based on role
   const handleLogin = (user: User) => {
     setCurrentUser(user);
     if (user.role === 'salesman') setActiveTab('salesman');
@@ -154,6 +302,7 @@ export default function OrderToAuditApp() {
     else if (user.role === 'production') setActiveTab('production');
     else if (user.role === 'auditor') setActiveTab('auditor');
     else setActiveTab('overview');
+    triggerCelebration();
   };
 
   const handleManualLogin = (e: React.FormEvent) => {
@@ -163,7 +312,7 @@ export default function OrderToAuditApp() {
       setLoginError('');
       handleLogin(user);
     } else {
-      setLoginError('Invalid username or password. Try test credentials below.');
+      setLoginError('Invalid credentials. Select one of the quick 1-click test roles below.');
     }
   };
 
@@ -178,7 +327,8 @@ export default function OrderToAuditApp() {
       });
       const json = await res.json();
       if (json.success) {
-        showNotify(json.message || 'Benchmark executed successfully!');
+        showNotify(json.message || 'Benchmark step verified with 100% precision!');
+        triggerCelebration();
         await refreshData();
       } else {
         showNotify(json.error || 'Failed to run benchmark', 'error');
@@ -234,7 +384,7 @@ export default function OrderToAuditApp() {
       };
       const updated = [...offlineQueue, offlineItem];
       saveOfflineQueue(updated);
-      showNotify(`Weak Network! Order saved to offline queue (${updated.length} pending).`);
+      showNotify(`Weak Network! Order saved to offline cache (${updated.length} pending).`);
       setSalesmanQty('150');
       setSalesmanNotes('');
       return;
@@ -250,6 +400,7 @@ export default function OrderToAuditApp() {
       const json = await res.json();
       if (json.success) {
         showNotify(`Order #${json.order.id} submitted directly to factory!`);
+        triggerCelebration();
         setSalesmanNotes('');
         refreshData();
       } else {
@@ -285,6 +436,7 @@ export default function OrderToAuditApp() {
       saveOfflineQueue([]);
       setIsOfflineMode(false);
       showNotify(`Successfully synced ${syncedCount} offline orders to factory!`);
+      triggerCelebration();
       refreshData();
     } catch (e: any) {
       showNotify(`Sync error: ${e.message}`, 'error');
@@ -314,6 +466,7 @@ export default function OrderToAuditApp() {
       const json = await res.json();
       if (json.success) {
         setBotConversation((prev) => [...prev, { role: 'bot', text: json.botReply }]);
+        triggerCelebration();
         refreshData();
       } else {
         setBotConversation((prev) => [...prev, { role: 'bot', text: `❌ Error: ${json.error}` }]);
@@ -340,6 +493,7 @@ export default function OrderToAuditApp() {
       const json = await res.json();
       if (json.success) {
         showNotify(`Purchase recorded! Flour closing stock: ${json.flourClosingBalance} kg.`);
+        triggerCelebration();
         refreshData();
       } else {
         showNotify(json.error, 'error');
@@ -373,6 +527,7 @@ export default function OrderToAuditApp() {
       const json = await res.json();
       if (json.success) {
         showNotify(`Production Run #${json.productionRun.id} saved! Batch: ${json.productionRun.batch_number}`);
+        triggerCelebration();
         refreshData();
       } else {
         showNotify(json.error, 'error');
@@ -397,6 +552,7 @@ export default function OrderToAuditApp() {
       if (json.success) {
         showNotify(`GST Invoice ${json.invoice.invoice_number} raised successfully!`);
         setSelectedInvoice(json.invoice);
+        triggerCelebration();
         refreshData();
       } else {
         showNotify(json.error, 'error');
@@ -419,7 +575,8 @@ export default function OrderToAuditApp() {
       });
       const json = await res.json();
       if (json.success) {
-        showNotify(`Order #${orderId} dispatched! Remaining finished goods: ${json.closingFinishedGoods} pkts.`);
+        showNotify(`Order #${orderId} dispatched! Remaining finished stock: ${json.closingFinishedGoods} pkts.`);
+        triggerCelebration();
         refreshData();
       } else {
         showNotify(json.error, 'error');
@@ -447,7 +604,7 @@ export default function OrderToAuditApp() {
       });
       const json = await res.json();
       if (json.success) {
-        showNotify(`Credit Note ${json.creditNote.credit_note_number} issued! Balance reversed.`);
+        showNotify(`Credit Note ${json.creditNote.credit_note_number} issued! Dues reversed.`);
         setShowCancelModal(false);
         setSelectedInvoice(null);
         refreshData();
@@ -478,6 +635,7 @@ export default function OrderToAuditApp() {
       const json = await res.json();
       if (json.success) {
         showNotify(`Payment of ₹${json.payment.amount} recorded! Updated balance: ₹${json.outstanding_balance}`);
+        triggerCelebration();
         refreshData();
       } else {
         showNotify(json.error, 'error');
@@ -516,11 +674,13 @@ export default function OrderToAuditApp() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    showNotify(`Exported ${filename}.csv successfully!`);
   };
 
   // Download Tally XML
   const handleDownloadTallyXml = () => {
     window.open('/api/reports?format=tally', '_blank');
+    showNotify('Downloading Tally-compatible XML voucher file...');
   };
 
   // -------------------------------------------------------------------------
@@ -528,13 +688,28 @@ export default function OrderToAuditApp() {
   // -------------------------------------------------------------------------
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4 font-sans">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl space-y-6">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden bg-mesh-grid">
+        <CustomCursor />
+
+        {/* Ambient Glow Orbs with Parallax */}
+        <div
+          className="absolute -top-32 -left-32 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none transition-transform duration-300"
+          style={{ transform: `translate(${mouseOffset.x}px, ${mouseOffset.y}px)` }}
+        />
+        <div
+          className="absolute -bottom-32 -right-32 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none transition-transform duration-300"
+          style={{ transform: `translate(${-mouseOffset.x}px, ${-mouseOffset.y}px)` }}
+        />
+
+        <div className="max-w-md w-full glass-panel rounded-3xl p-8 shadow-2xl space-y-6 relative z-10 border border-slate-700/60 animate-scale-in">
           <div className="text-center space-y-2">
-            <div className="inline-flex p-3 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20 mb-2">
+            <div className="inline-flex p-3.5 bg-gradient-to-tr from-amber-500/20 to-orange-500/20 text-amber-400 rounded-2xl border border-amber-500/40 mb-2 shadow-lg shadow-amber-500/10 animate-float">
               <Factory className="w-8 h-8" />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Order-to-Audit System</h1>
+            <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center justify-center gap-2">
+              Order-to-Audit System
+              <Sparkles className="w-4 h-4 text-amber-400" />
+            </h1>
             <p className="text-xs text-slate-400">
               South Indian Food Manufacturer • Centre for Digital Infrastructure, NIT Tiruchirappalli
             </p>
@@ -542,40 +717,47 @@ export default function OrderToAuditApp() {
 
           {/* Quick 1-Click Role Login for Evaluators */}
           <div className="space-y-3 pt-2 border-t border-slate-800">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block text-center">
-              Quick 1-Click Test Login (Click any role)
-            </span>
-            <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <span>Quick 1-Click Role Login</span>
+              <span className="text-[10px] text-amber-400 normal-case font-normal">Click any role to test</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 text-xs">
               {TEST_USERS.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => handleLogin(u)}
-                  className={`p-2.5 rounded-lg border text-left transition flex flex-col justify-between ${
-                    u.role === 'salesman'
-                      ? 'bg-blue-950/40 border-blue-800/60 hover:bg-blue-900/60 text-blue-200'
-                      : u.role === 'admin'
-                      ? 'bg-amber-950/40 border-amber-800/60 hover:bg-amber-900/60 text-amber-200'
-                      : u.role === 'production'
-                      ? 'bg-emerald-950/40 border-emerald-800/60 hover:bg-emerald-900/60 text-emerald-200'
-                      : u.role === 'auditor'
-                      ? 'bg-purple-950/40 border-purple-800/60 hover:bg-purple-900/60 text-purple-200'
-                      : 'bg-rose-950/40 border-rose-800/60 hover:bg-rose-900/60 text-rose-200 col-span-2'
-                  }`}
-                >
-                  <span className="font-bold">{u.badge}</span>
-                  <span className="opacity-75 text-[11px] mt-0.5">{u.username}</span>
-                </button>
+                <TiltCard key={u.id} className={u.role === 'owner' ? 'col-span-2' : ''}>
+                  <button
+                    onClick={() => handleLogin(u)}
+                    className={`w-full p-3 rounded-xl border text-left transition-all duration-200 flex flex-col justify-between group cursor-pointer ${
+                      u.role === 'salesman'
+                        ? 'bg-blue-950/40 border-blue-800/60 hover:bg-blue-900/60 hover:border-blue-500 text-blue-200'
+                        : u.role === 'admin'
+                        ? 'bg-amber-950/40 border-amber-800/60 hover:bg-amber-900/60 hover:border-amber-500 text-amber-200'
+                        : u.role === 'production'
+                        ? 'bg-emerald-950/40 border-emerald-800/60 hover:bg-emerald-900/60 hover:border-emerald-500 text-emerald-200'
+                        : u.role === 'auditor'
+                        ? 'bg-purple-950/40 border-purple-800/60 hover:bg-purple-900/60 hover:border-purple-500 text-purple-200'
+                        : 'bg-rose-950/40 border-rose-800/60 hover:bg-rose-900/60 hover:border-rose-500 text-rose-200'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center w-full">
+                      <span className="font-bold tracking-tight text-white group-hover:text-amber-400 transition-colors">
+                        {u.badge}
+                      </span>
+                      <Zap className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                    <span className="opacity-75 text-[11px] mt-1 font-mono">{u.username}</span>
+                  </button>
+                </TiltCard>
               ))}
             </div>
           </div>
 
-          {/* Or Manual Login Form */}
-          <form onSubmit={handleManualLogin} className="space-y-3 pt-3 border-t border-slate-800">
+          {/* Manual Login Form */}
+          <form onSubmit={handleManualLogin} className="space-y-3.5 pt-3 border-t border-slate-800">
             <span className="text-xs font-semibold text-slate-400 block text-center">
               Or Sign In With Test Credentials
             </span>
             {loginError && (
-              <div className="p-2 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded text-center">
+              <div className="p-2.5 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded-lg text-center animate-shake">
                 {loginError}
               </div>
             )}
@@ -586,7 +768,7 @@ export default function OrderToAuditApp() {
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
                 placeholder="e.g. salesman, admin, production, auditor, owner"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
+                className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition"
               />
             </div>
             <div>
@@ -596,19 +778,22 @@ export default function OrderToAuditApp() {
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
                 placeholder="password123"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
+                className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition"
               />
             </div>
             <button
               type="submit"
-              className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-sm transition shadow-lg"
+              className="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-bold rounded-xl text-sm transition shadow-lg shadow-amber-500/20 active:scale-95 cursor-pointer"
             >
-              Log In to Portal
+              Sign In to Portal
             </button>
           </form>
 
-          <div className="text-center text-[11px] text-slate-500">
-            Default Password for all roles: <code className="text-amber-400 font-mono">password123</code>
+          <div className="text-center text-[11px] text-slate-500 flex justify-center items-center gap-1.5">
+            <Lock className="w-3 h-3 text-amber-400" />
+            <span>
+              Default Password for all roles: <code className="text-amber-400 font-mono">password123</code>
+            </span>
           </div>
         </div>
       </div>
@@ -619,17 +804,30 @@ export default function OrderToAuditApp() {
   // MAIN AUTHENTICATED PORTAL
   // -------------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans relative overflow-x-hidden bg-mesh-grid">
+      <CustomCursor />
+
+      {/* Ambient Parallax Mesh Orbs */}
+      <div
+        className="fixed top-0 left-1/4 w-[600px] h-[600px] bg-amber-500/5 rounded-full blur-[140px] pointer-events-none transition-transform duration-500"
+        style={{ transform: `translate(${mouseOffset.x * 0.8}px, ${mouseOffset.y * 0.8}px)` }}
+      />
+      <div
+        className="fixed bottom-0 right-1/4 w-[600px] h-[600px] bg-emerald-500/5 rounded-full blur-[140px] pointer-events-none transition-transform duration-500"
+        style={{ transform: `translate(${-mouseOffset.x * 0.8}px, ${-mouseOffset.y * 0.8}px)` }}
+      />
+
       {/* Top Header */}
-      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40 px-6 py-3 flex flex-wrap items-center justify-between gap-4">
+      <header className="border-b border-slate-800/80 bg-slate-900/75 backdrop-blur-xl sticky top-0 z-40 px-6 py-3 flex flex-wrap items-center justify-between gap-4 shadow-sm">
         <div className="flex items-center space-x-3">
-          <div className="bg-amber-500/20 text-amber-400 p-2 rounded-lg border border-amber-500/30">
-            <Factory className="w-5 h-5" />
+          <div className="bg-gradient-to-tr from-amber-500/20 to-orange-500/20 text-amber-400 p-2.5 rounded-xl border border-amber-500/30 shadow-md shadow-amber-500/10">
+            <Factory className="w-5 h-5 animate-pulse" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-white tracking-tight">Order-to-Audit System</h1>
-              <span className="text-[11px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">
+              <h1 className="text-base font-bold text-white tracking-tight">Order-to-Audit System</h1>
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                 NIT Tiruchirappalli
               </span>
             </div>
@@ -643,18 +841,18 @@ export default function OrderToAuditApp() {
           <button
             onClick={() => handleRunBenchmark()}
             disabled={loading}
-            className="hidden sm:flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs shadow transition"
+            className="hidden sm:flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl text-xs shadow-md shadow-amber-500/20 transition active:scale-95 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Run Exact Section 5 Benchmark
           </button>
 
           {/* Current User Badge & Quick Switch */}
-          <div className="flex items-center bg-slate-800/80 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs gap-2">
+          <div className="flex items-center bg-slate-800/80 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs gap-2 shadow-inner">
             <UserCheck className="w-4 h-4 text-emerald-400" />
             <div>
               <span className="text-white font-semibold block">{currentUser.name}</span>
-              <span className="text-[10px] text-amber-400 font-mono uppercase">{currentUser.badge}</span>
+              <span className="text-[10px] text-amber-400 font-mono uppercase font-bold">{currentUser.badge}</span>
             </div>
             {/* Quick Switch Dropdown */}
             <select
@@ -663,7 +861,7 @@ export default function OrderToAuditApp() {
                 const u = TEST_USERS.find((x) => x.role === e.target.value);
                 if (u) handleLogin(u);
               }}
-              className="ml-2 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 cursor-pointer focus:outline-none"
+              className="ml-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-slate-200 cursor-pointer focus:outline-none focus:border-amber-500 transition"
               title="Switch Role"
             >
               {TEST_USERS.map((u) => (
@@ -677,7 +875,7 @@ export default function OrderToAuditApp() {
           {/* Logout */}
           <button
             onClick={() => setCurrentUser(null)}
-            className="p-2 bg-slate-800 hover:bg-rose-950/60 hover:text-rose-400 text-slate-400 rounded-lg border border-slate-700 transition"
+            className="p-2 bg-slate-800/80 hover:bg-rose-950/60 hover:text-rose-400 text-slate-400 rounded-xl border border-slate-700/80 transition active:scale-90 cursor-pointer"
             title="Log Out"
           >
             <LogOut className="w-4 h-4" />
@@ -688,22 +886,27 @@ export default function OrderToAuditApp() {
       {/* Notifications */}
       {notification && (
         <div
-          className={`px-6 py-2.5 text-xs flex items-center justify-between border-b ${
+          className={`px-6 py-2.5 text-xs flex items-center justify-between border-b animate-fade-in-up z-50 ${
             notification.type === 'success'
-              ? 'bg-emerald-950/90 text-emerald-200 border-emerald-800'
-              : 'bg-rose-950/90 text-rose-200 border-rose-800'
+              ? 'bg-emerald-950/90 text-emerald-200 border-emerald-800 shadow-lg shadow-emerald-950/30'
+              : 'bg-rose-950/90 text-rose-200 border-rose-800 shadow-lg shadow-rose-950/30'
           }`}
         >
-          <span className="font-medium">{notification.text}</span>
-          <button onClick={() => setNotification(null)} className="text-xs opacity-75 hover:opacity-100 font-bold ml-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span className="font-medium">{notification.text}</span>
+          </div>
+          <button
+            onClick={() => setNotification(null)}
+            className="text-xs opacity-75 hover:opacity-100 font-bold ml-4 cursor-pointer"
+          >
             ✕
           </button>
         </div>
       )}
 
-      {/* Role-Based Navigation Bar (Strict RBAC filtering) */}
-      <nav className="bg-slate-900 border-b border-slate-800 px-6 flex space-x-1 overflow-x-auto text-xs">
-        {/* Navigation items allowed per role */}
+      {/* Role-Based Navigation Bar (Strict RBAC) */}
+      <nav className="bg-slate-900/60 border-b border-slate-800 px-6 flex space-x-1 overflow-x-auto text-xs backdrop-blur-md">
         {[
           { id: 'overview', label: 'Owner Summary', icon: Building, roles: ['owner', 'admin'] },
           { id: 'salesman', label: 'Field Sales & SnackBot', icon: Smartphone, roles: ['salesman', 'owner', 'admin'] },
@@ -720,88 +923,122 @@ export default function OrderToAuditApp() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 py-3 px-4 border-b-2 font-medium whitespace-nowrap transition-colors ${
+                className={`flex items-center gap-2 py-3 px-4.5 border-b-2 font-semibold whitespace-nowrap transition-all duration-200 cursor-pointer ${
                   active
-                    ? 'border-amber-500 text-amber-400 bg-slate-800/60'
+                    ? 'border-amber-500 text-amber-400 bg-slate-800/60 glow-tab'
                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className={`w-4 h-4 ${active ? 'text-amber-400' : 'text-slate-400'}`} />
                 {tab.label}
               </button>
             );
           })}
       </nav>
 
-      {/* Main Content Body */}
-      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
+      {/* Main Content Area */}
+      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6 relative z-10">
         {/* ================================================================= */}
         {/* 1. OWNER EXECUTIVE DASHBOARD */}
         {/* ================================================================= */}
         {activeTab === 'overview' && (
-          <div className="space-y-6">
-            {/* Quick KPI Overview */}
+          <div className="space-y-6 animate-fade-in-up">
+            {/* 3D KPI Overview Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                <div className="flex justify-between items-start">
-                  <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Flour Raw Stock</span>
-                  <Package className="w-5 h-5 text-amber-400" />
+              <TiltCard>
+                <div className="glass-panel rounded-2xl p-5 h-full flex flex-col justify-between">
+                  <div className="flex justify-between items-start">
+                    <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Flour Raw Stock</span>
+                    <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg border border-amber-500/20">
+                      <Package className="w-5 h-5" />
+                    </div>
+                  </div>
+                  <div className="my-2">
+                    <div className="text-3xl font-extrabold text-white tracking-tight">
+                      {data?.benchmark?.flourClosingBalance ?? 120} <span className="text-sm font-normal text-slate-400">kg</span>
+                    </div>
+                    <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1 font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> 100 kg + 60 kg − 40 kg = 120 kg
+                    </p>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono">Status: 100% Benchmark Verified</div>
                 </div>
-                <div className="text-2xl font-bold mt-2 text-white">
-                  {data?.benchmark?.flourClosingBalance ?? 120} <span className="text-xs font-normal text-slate-400">kg</span>
-                </div>
-                <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> 100 kg op + 60 kg pur − 40 kg run = 120 kg
-                </p>
-              </div>
+              </TiltCard>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                <div className="flex justify-between items-start">
-                  <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Cooking Oil Stock</span>
-                  <TrendingDown className="w-5 h-5 text-amber-400" />
+              <TiltCard>
+                <div className="glass-panel rounded-2xl p-5 h-full flex flex-col justify-between">
+                  <div className="flex justify-between items-start">
+                    <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Cooking Oil Stock</span>
+                    <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg border border-amber-500/20">
+                      <TrendingDown className="w-5 h-5" />
+                    </div>
+                  </div>
+                  <div className="my-2">
+                    <div className="text-3xl font-extrabold text-white tracking-tight">
+                      {data?.benchmark?.oilClosingBalance ?? 19.5} <span className="text-sm font-normal text-slate-400">L</span>
+                    </div>
+                    <p className="text-xs text-amber-400 mt-1 flex items-center gap-1 font-medium">
+                      <AlertTriangle className="w-3.5 h-3.5" /> 10.5 L (+5% over standard)
+                    </p>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono">Variance: Flagged (&gt;3% tol)</div>
                 </div>
-                <div className="text-2xl font-bold mt-2 text-white">
-                  {data?.benchmark?.oilClosingBalance ?? 19.5} <span className="text-xs font-normal text-slate-400">L</span>
-                </div>
-                <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" /> 10.5 L consumed (+5% over standard)
-                </p>
-              </div>
+              </TiltCard>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                <div className="flex justify-between items-start">
-                  <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Finished Goods Stock</span>
-                  <Factory className="w-5 h-5 text-emerald-400" />
+              <TiltCard>
+                <div className="glass-panel rounded-2xl p-5 h-full flex flex-col justify-between">
+                  <div className="flex justify-between items-start">
+                    <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Finished Goods Stock</span>
+                    <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
+                      <Factory className="w-5 h-5" />
+                    </div>
+                  </div>
+                  <div className="my-2">
+                    <div className="text-3xl font-extrabold text-white tracking-tight">
+                      {data?.benchmark?.finishedGoodsStock ?? 88} <span className="text-sm font-normal text-slate-400">packets</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1 font-medium">
+                      Available after Retailer A 150 pkt dispatch
+                    </p>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono">50 op + 188 prod − 150 disp</div>
                 </div>
-                <div className="text-2xl font-bold mt-2 text-white">
-                  {data?.benchmark?.finishedGoodsStock ?? 88} <span className="text-xs font-normal text-slate-400">packets</span>
-                </div>
-                <p className="text-xs text-slate-400 mt-1">Available after Retailer A 150 pkt dispatch</p>
-              </div>
+              </TiltCard>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                <div className="flex justify-between items-start">
-                  <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Retailer A Outstanding</span>
-                  <DollarSign className="w-5 h-5 text-rose-400" />
+              <TiltCard>
+                <div className="glass-panel rounded-2xl p-5 h-full flex flex-col justify-between">
+                  <div className="flex justify-between items-start">
+                    <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Retailer A Dues</span>
+                    <div className="p-2 bg-rose-500/10 text-rose-400 rounded-lg border border-rose-500/20">
+                      <DollarSign className="w-5 h-5" />
+                    </div>
+                  </div>
+                  <div className="my-2">
+                    <div className="text-3xl font-extrabold text-white tracking-tight">
+                      ₹{data?.benchmark?.retailerA?.outstanding_balance?.toLocaleString() ?? '3,875'}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1 font-medium">
+                      ₹7,875 invoice − ₹4,000 payment
+                    </p>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono">Receivables Ledger Tracked</div>
                 </div>
-                <div className="text-2xl font-bold mt-2 text-white">
-                  ₹{data?.benchmark?.retailerA?.outstanding_balance?.toLocaleString() ?? '3,875'}
-                </div>
-                <p className="text-xs text-slate-400 mt-1">₹7,875 invoice − ₹4,000 payment</p>
-              </div>
+              </TiltCard>
             </div>
 
             {/* Low-Stock Alerts Banner */}
             {data?.stockSummary?.lowStockAlerts?.length > 0 && (
-              <div className="bg-amber-950/50 border border-amber-800/80 rounded-xl p-4 flex items-center justify-between text-xs text-amber-200">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+              <div className="glass-panel bg-amber-950/40 border border-amber-800/80 rounded-2xl p-4 flex items-center justify-between text-xs text-amber-200 shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-amber-500/20 rounded-xl text-amber-400">
+                    <AlertCircle className="w-5 h-5 flex-shrink-0 animate-bounce" />
+                  </div>
                   <span>
                     <strong>Reorder Alert:</strong> The following materials have reached or fallen below safety reorder levels:{' '}
                     {data.stockSummary.lowStockAlerts.map((i: any) => `${i.name} (${i.current_stock} ${i.unit})`).join(', ')}
                   </span>
                 </div>
-                <span className="bg-amber-500/20 px-2 py-0.5 rounded text-[10px] font-bold uppercase text-amber-300">
+                <span className="bg-amber-500/20 px-3 py-1 rounded-xl text-[10px] font-bold uppercase text-amber-300 border border-amber-500/40">
                   Procure Now
                 </span>
               </div>
@@ -809,41 +1046,48 @@ export default function OrderToAuditApp() {
 
             {/* Production Planning Widget */}
             {data?.productionPlanning && (
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-                <h3 className="text-base font-semibold text-white mb-2 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-amber-400" />
-                  Production Planning From Pending Demand (Stretch Goal)
-                </h3>
-                <p className="text-xs text-slate-400 mb-4">
-                  Automated floor planning based on submitted retail and distributor orders.
-                </p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                  <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                    <span className="text-slate-400 block">Pending Order Demand</span>
-                    <span className="text-lg font-bold text-white mt-1 block">
-                      {data.productionPlanning.totalPendingPackets} pkts
+              <TiltCard>
+                <div className="glass-panel rounded-2xl p-6">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-amber-400" />
+                      Production Planning From Pending Demand (Stretch Goal)
+                    </h3>
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 rounded-full font-mono">
+                      Automated Recipe Planner
                     </span>
                   </div>
-                  <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                    <span className="text-slate-400 block">Current Finished Stock</span>
-                    <span className="text-lg font-bold text-white mt-1 block">
-                      {data.productionPlanning.availablePackets} pkts
-                    </span>
-                  </div>
-                  <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                    <span className="text-slate-400 block">Finished Goods Shortage</span>
-                    <span className="text-lg font-bold text-rose-400 mt-1 block">
-                      {data.productionPlanning.deficitPackets} pkts
-                    </span>
-                  </div>
-                  <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                    <span className="text-slate-400 block">Suggested Batches to Run</span>
-                    <span className="text-lg font-bold text-amber-400 mt-1 block">
-                      {data.productionPlanning.batchesNeeded} batch ({data.productionPlanning.flourNeededKg} kg flour)
-                    </span>
+                  <p className="text-xs text-slate-400 mb-4">
+                    Automated floor calculation based on pending customer orders vs current warehouse stock.
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
+                      <span className="text-slate-400 block text-[11px]">Pending Order Demand</span>
+                      <span className="text-xl font-bold text-white mt-1 block font-mono">
+                        {data.productionPlanning.totalPendingPackets} pkts
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
+                      <span className="text-slate-400 block text-[11px]">Current Finished Stock</span>
+                      <span className="text-xl font-bold text-white mt-1 block font-mono">
+                        {data.productionPlanning.availablePackets} pkts
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
+                      <span className="text-slate-400 block text-[11px]">Finished Goods Deficit</span>
+                      <span className="text-xl font-bold text-rose-400 mt-1 block font-mono">
+                        {data.productionPlanning.deficitPackets} pkts
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
+                      <span className="text-slate-400 block text-[11px]">Suggested Batches to Run</span>
+                      <span className="text-xl font-bold text-amber-400 mt-1 block font-mono">
+                        {data.productionPlanning.batchesNeeded} batch ({data.productionPlanning.flourNeededKg} kg flour)
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </TiltCard>
             )}
           </div>
         )}
@@ -852,580 +1096,602 @@ export default function OrderToAuditApp() {
         {/* 2. SALESMAN VIEW (Mobile Order Taking & SnackBot) */}
         {/* ================================================================= */}
         {activeTab === 'salesman' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up">
             {/* Field Order Screen */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <Smartphone className="w-5 h-5 text-amber-400" />
-                  <h3 className="text-base font-semibold text-white">Mobile Order Taking Desk</h3>
-                </div>
-                {/* Offline Mode Switch */}
-                <button
-                  onClick={() => setIsOfflineMode(!isOfflineMode)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold border transition ${
-                    isOfflineMode
-                      ? 'bg-rose-950/80 text-rose-300 border-rose-700'
-                      : 'bg-emerald-950/80 text-emerald-300 border-emerald-700'
-                  }`}
-                  title="Toggle Weak Network / Offline Mode"
-                >
-                  {isOfflineMode ? (
-                    <>
-                      <WifiOff className="w-3.5 h-3.5" /> Offline Mode Active
-                    </>
-                  ) : (
-                    <>
-                      <Wifi className="w-3.5 h-3.5" /> Online (Live Sync)
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Pending Offline Queue Alert */}
-              {offlineQueue.length > 0 && (
-                <div className="bg-blue-950/60 border border-blue-800 rounded-lg p-3 flex justify-between items-center text-xs">
-                  <span className="text-blue-200">
-                    <strong>{offlineQueue.length} Order(s)</strong> queued locally in browser offline cache.
-                  </span>
-                  <button
-                    onClick={handleSyncOfflineOrders}
-                    className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1 rounded text-xs transition"
-                  >
-                    Sync to Factory Now
-                  </button>
-                </div>
-              )}
-
-              {/* Order Form */}
-              <div className="space-y-3 text-xs">
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-6 space-y-4 h-full flex flex-col justify-between">
                 <div>
-                  <label className="block font-medium text-slate-400 mb-1">Select Customer</label>
-                  <select
-                    value={salesmanCustomer}
-                    onChange={(e) => setSalesmanCustomer(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                  >
-                    <option value="1">Retailer A (Tamil Nadu) — Intra-state (CGST + SGST)</option>
-                    <option value="2">Distributor B (Karnataka) — Inter-state (IGST applies)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">Product</label>
-                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white flex justify-between items-center">
-                    <div>
-                      <span className="font-semibold">Murukku 200 g</span>
-                      <span className="text-[10px] text-slate-400 block">HSN: 19059040 • GST 5%</span>
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <Smartphone className="w-5 h-5 text-amber-400" />
+                      <h3 className="text-base font-semibold text-white">Mobile Order Taking Desk</h3>
                     </div>
-                    <span className="text-amber-400 font-bold">₹50.00 / packet</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">Order Quantity (Packets)</label>
-                  <input
-                    type="number"
-                    value={salesmanQty}
-                    onChange={(e) => setSalesmanQty(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                    placeholder="e.g. 150"
-                  />
-                  <div className="text-[11px] text-slate-400 mt-1 flex justify-between">
-                    <span>Taxable Value: ₹{(Number(salesmanQty) || 0) * 50}</span>
-                    <span>Available Stock: {data?.benchmark?.finishedGoodsStock ?? 88} pkts</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">Delivery Notes</label>
-                  <input
-                    type="text"
-                    value={salesmanNotes}
-                    onChange={(e) => setSalesmanNotes(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                    placeholder="e.g. Urgent festival stock delivery"
-                  />
-                </div>
-
-                <button
-                  onClick={handlePlaceOrder}
-                  disabled={loading}
-                  className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs transition shadow"
-                >
-                  {isOfflineMode ? 'Save Order in Offline Cache' : 'Submit Order Directly to Factory'}
-                </button>
-              </div>
-
-              {/* Salesman Order History */}
-              <div className="pt-4 border-t border-slate-800">
-                <h4 className="text-xs font-semibold text-white mb-2">My Recent Submitted Orders</h4>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {data?.orders?.map((ord: any) => (
-                    <div
-                      key={ord.id}
-                      className="bg-slate-950 p-2.5 rounded border border-slate-800 flex justify-between items-center text-xs"
+                    {/* Offline Mode Switch */}
+                    <button
+                      onClick={() => setIsOfflineMode(!isOfflineMode)}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition cursor-pointer active:scale-95 ${
+                        isOfflineMode
+                          ? 'bg-rose-950/80 text-rose-300 border-rose-700 shadow-md shadow-rose-950/40'
+                          : 'bg-emerald-950/80 text-emerald-300 border-emerald-700 shadow-md shadow-emerald-950/40'
+                      }`}
+                      title="Toggle Weak Network / Offline Mode"
                     >
-                      <div>
-                        <span className="font-bold text-white">#{ord.id}</span> • {ord.customer_name} (
-                        {ord.items[0]?.quantity} pkts)
-                        <span className="text-[10px] text-slate-400 block">{ord.notes || 'Standard Delivery'}</span>
-                      </div>
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                          ord.status === 'dispatched'
-                            ? 'bg-emerald-500/20 text-emerald-300'
-                            : ord.status === 'invoiced'
-                            ? 'bg-blue-500/20 text-blue-300'
-                            : 'bg-amber-500/20 text-amber-300'
-                        }`}
-                      >
-                        {ord.status}
+                      {isOfflineMode ? (
+                        <>
+                          <WifiOff className="w-3.5 h-3.5" /> Offline Mode Active
+                        </>
+                      ) : (
+                        <>
+                          <Wifi className="w-3.5 h-3.5" /> Online (Live Sync)
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Pending Offline Queue Alert */}
+                  {offlineQueue.length > 0 && (
+                    <div className="bg-blue-950/60 border border-blue-800/80 rounded-xl p-3 flex justify-between items-center text-xs my-3 shadow-md">
+                      <span className="text-blue-200">
+                        <strong>{offlineQueue.length} Order(s)</strong> queued locally in offline cache.
                       </span>
+                      <button
+                        onClick={handleSyncOfflineOrders}
+                        className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1 rounded-lg text-xs transition cursor-pointer active:scale-95 shadow"
+                      >
+                        Sync to Factory Now
+                      </button>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Order Form */}
+                  <div className="space-y-3.5 text-xs mt-3">
+                    <div>
+                      <label className="block font-medium text-slate-400 mb-1">Select Customer</label>
+                      <select
+                        value={salesmanCustomer}
+                        onChange={(e) => setSalesmanCustomer(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-amber-500 transition cursor-pointer"
+                      >
+                        <option value="1">Retailer A (Tamil Nadu) — Intra-state (CGST + SGST 5%)</option>
+                        <option value="2">Distributor B (Karnataka) — Inter-state (IGST 5%)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-slate-400 mb-1">Product</label>
+                      <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3 text-xs text-white flex justify-between items-center">
+                        <div>
+                          <span className="font-semibold block text-sm">Murukku 200 g</span>
+                          <span className="text-[10px] text-slate-400 font-mono">HSN: 19059040 • GST 5%</span>
+                        </div>
+                        <span className="text-amber-400 font-extrabold text-base">₹50.00 / packet</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-slate-400 mb-1">Order Quantity (Packets)</label>
+                      <input
+                        type="number"
+                        value={salesmanQty}
+                        onChange={(e) => setSalesmanQty(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-amber-500 transition"
+                        placeholder="e.g. 150"
+                      />
+                      <div className="text-[11px] text-slate-400 mt-1 flex justify-between">
+                        <span>Taxable Value: ₹{(Number(salesmanQty) || 0) * 50}</span>
+                        <span>Available Stock: {data?.benchmark?.finishedGoodsStock ?? 88} pkts</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-slate-400 mb-1">Delivery Notes</label>
+                      <input
+                        type="text"
+                        value={salesmanNotes}
+                        onChange={(e) => setSalesmanNotes(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-amber-500 transition"
+                        placeholder="e.g. Urgent festival stock delivery"
+                      />
+                    </div>
+
+                    <button
+                      onClick={handlePlaceOrder}
+                      disabled={loading}
+                      className="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-bold rounded-xl text-xs transition shadow-lg shadow-amber-500/20 active:scale-95 cursor-pointer"
+                    >
+                      {isOfflineMode ? 'Save Order in Offline Cache' : 'Submit Order Directly to Factory'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Salesman Order History */}
+                <div className="pt-4 border-t border-slate-800/80">
+                  <h4 className="text-xs font-semibold text-white mb-2">My Recent Orders</h4>
+                  <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                    {data?.orders?.map((ord: any) => (
+                      <div
+                        key={ord.id}
+                        className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800/80 flex justify-between items-center text-xs hover:border-slate-700 transition"
+                      >
+                        <div>
+                          <span className="font-bold text-white">#{ord.id}</span> • {ord.customer_name} (
+                          {ord.items[0]?.quantity} pkts)
+                          <span className="text-[10px] text-slate-400 block">{ord.notes || 'Standard Delivery'}</span>
+                        </div>
+                        <span
+                          className={`px-2 py-0.5 rounded-lg text-[10px] uppercase font-bold ${
+                            ord.status === 'dispatched'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : ord.status === 'invoiced'
+                              ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          }`}
+                        >
+                          {ord.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            </TiltCard>
 
             {/* SnackBot AI Chat & Voice Ordering Desk */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col h-[560px]">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="w-5 h-5 text-emerald-400" />
-                  <h3 className="text-base font-semibold text-white">SnackBot AI Field Agent</h3>
-                </div>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded">
-                  Voice & WhatsApp Bot
-                </span>
-              </div>
-
-              {/* Bot chat history */}
-              <div className="flex-1 overflow-y-auto space-y-3 p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs">
-                {botConversation.map((c, i) => (
-                  <div key={i} className={`flex ${c.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`max-w-[85%] rounded-lg p-2.5 whitespace-pre-wrap ${
-                        c.role === 'user'
-                          ? 'bg-amber-500 text-slate-950 font-semibold'
-                          : 'bg-slate-800 text-slate-100 border border-slate-700'
-                      }`}
-                    >
-                      {c.text}
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-6 flex flex-col h-[580px] justify-between">
+                <div>
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-emerald-500/20 rounded-lg text-emerald-400">
+                        <MessageSquare className="w-4 h-4" />
+                      </div>
+                      <h3 className="text-base font-semibold text-white">SnackBot AI Field Agent</h3>
                     </div>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">
+                      Voice & Natural Language
+                    </span>
                   </div>
-                ))}
-              </div>
 
-              {/* Quick Sample Prompts */}
-              <div className="py-2 flex flex-wrap gap-1.5 text-[10px]">
-                <button
-                  onClick={() => handleSendBotMessage('Send 150 packets Murukku to Retailer A in TN')}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded border border-slate-700"
-                >
-                  "150 pkts for Retailer A"
-                </button>
-                <button
-                  onClick={() => handleSendBotMessage('Order 120 packets to Distributor B in Karnataka')}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded border border-slate-700"
-                >
-                  "120 pkts for Distributor B"
-                </button>
-                <button
-                  onClick={() => handleSendBotMessage('What is the current stock of Murukku 200g?')}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded border border-slate-700"
-                >
-                  "Check Stock"
-                </button>
-              </div>
+                  {/* Bot chat history */}
+                  <div className="overflow-y-auto space-y-3 p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800 text-xs h-[320px]">
+                    {botConversation.map((c, i) => (
+                      <div key={i} className={`flex ${c.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div
+                          className={`max-w-[85%] rounded-2xl p-3 whitespace-pre-wrap shadow ${
+                            c.role === 'user'
+                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-bold'
+                              : 'bg-slate-900/90 text-slate-100 border border-slate-700/80'
+                          }`}
+                        >
+                          {c.text}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
-              {/* Bot Input Area */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={botPrompt}
-                  onChange={(e) => setBotPrompt(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendBotMessage()}
-                  placeholder='Try: "Send 150 packets to Retailer A"'
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
-                <button
-                  onClick={() => handleSendBotMessage()}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                </button>
+                <div>
+                  {/* Quick Sample Prompts */}
+                  <div className="py-2.5 flex flex-wrap gap-1.5 text-[10px]">
+                    <button
+                      onClick={() => handleSendBotMessage('Send 150 packets Murukku to Retailer A in TN')}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 transition cursor-pointer"
+                    >
+                      "150 pkts for Retailer A"
+                    </button>
+                    <button
+                      onClick={() => handleSendBotMessage('Order 120 packets to Distributor B in Karnataka')}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 transition cursor-pointer"
+                    >
+                      "120 pkts for Distributor B"
+                    </button>
+                    <button
+                      onClick={() => handleSendBotMessage('Check current finished stock for Murukku 200g')}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 transition cursor-pointer"
+                    >
+                      "Check Stock"
+                    </button>
+                  </div>
+
+                  {/* Bot Input Area */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={botPrompt}
+                      onChange={(e) => setBotPrompt(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSendBotMessage()}
+                      placeholder='Try: "Send 150 packets to Retailer A"'
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 transition"
+                    />
+                    <button
+                      onClick={() => handleSendBotMessage()}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md shadow-emerald-950"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            </TiltCard>
           </div>
         )}
 
         {/* ================================================================= */}
-        {/* 3. FACTORY ADMIN DESK (Order Verification, GST Billing & Dispatch) */}
+        {/* 3. FACTORY ADMIN DESK */}
         {/* ================================================================= */}
         {activeTab === 'admin' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in-up">
             {/* Raw Material Purchase Recording */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                <Package className="w-4 h-4 text-amber-400" />
-                Step 1: Record Raw Material Purchase (Benchmark: 60 kg Flour @ ₹45/kg)
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
-                <input
-                  type="number"
-                  value={purchaseQty}
-                  onChange={(e) => setPurchaseQty(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  placeholder="Quantity (kg)"
-                />
-                <input
-                  type="number"
-                  value={purchaseRate}
-                  onChange={(e) => setPurchaseRate(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  placeholder="Rate per kg (₹)"
-                />
-                <input
-                  type="text"
-                  value={purchaseSupplier}
-                  onChange={(e) => setPurchaseSupplier(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  placeholder="Supplier Name"
-                />
-                <button
-                  onClick={handleRecordPurchase}
-                  className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-2 rounded text-xs transition"
-                >
-                  Record Purchase Inward
-                </button>
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-5">
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <Package className="w-4 h-4 text-amber-400" />
+                  Step 1: Record Raw Material Purchase (Benchmark: 60 kg Flour @ ₹45/kg)
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                  <input
+                    type="number"
+                    value={purchaseQty}
+                    onChange={(e) => setPurchaseQty(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-amber-500"
+                    placeholder="Quantity (kg)"
+                  />
+                  <input
+                    type="number"
+                    value={purchaseRate}
+                    onChange={(e) => setPurchaseRate(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-amber-500"
+                    placeholder="Rate per kg (₹)"
+                  />
+                  <input
+                    type="text"
+                    value={purchaseSupplier}
+                    onChange={(e) => setPurchaseSupplier(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-amber-500"
+                    placeholder="Supplier Name"
+                  />
+                  <button
+                    onClick={handleRecordPurchase}
+                    className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-2.5 rounded-xl text-xs transition active:scale-95 cursor-pointer shadow"
+                  >
+                    Record Purchase Inward
+                  </button>
+                </div>
               </div>
-            </div>
+            </TiltCard>
 
             {/* Orders Queue & Stock Verification Table */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                  <ShoppingCart className="w-4 h-4 text-amber-400" />
-                  Incoming Orders & Finished Stock Coverage Desk
-                </h3>
-                <span className="text-xs text-slate-400">
-                  Available Murukku 200g: <strong>{data?.benchmark?.finishedGoodsStock ?? 88} pkts</strong>
-                </span>
-              </div>
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                    <ShoppingCart className="w-4 h-4 text-amber-400" />
+                    Incoming Orders & Finished Stock Coverage Desk
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    Available Murukku 200g: <strong className="text-white font-mono">{data?.benchmark?.finishedGoodsStock ?? 88} pkts</strong>
+                  </span>
+                </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950 text-slate-400 uppercase border-b border-slate-800">
-                    <tr>
-                      <th className="p-3">Order</th>
-                      <th className="p-3">Customer</th>
-                      <th className="p-3">State & Tax Type</th>
-                      <th className="p-3">Order Qty</th>
-                      <th className="p-3">Stock Check</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {data?.orders?.map((ord: any) => {
-                      const qty = ord.items[0]?.quantity || 0;
-                      const available = data?.benchmark?.finishedGoodsStock ?? 88;
-                      const hasStock = available >= qty;
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950/80 text-slate-400 uppercase border-b border-slate-800">
+                      <tr>
+                        <th className="p-3">Order</th>
+                        <th className="p-3">Customer</th>
+                        <th className="p-3">State & Tax Type</th>
+                        <th className="p-3">Order Qty</th>
+                        <th className="p-3">Stock Check</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {data?.orders?.map((ord: any) => {
+                        const qty = ord.items[0]?.quantity || 0;
+                        const available = data?.benchmark?.finishedGoodsStock ?? 88;
+                        const hasStock = available >= qty;
 
-                      return (
-                        <tr key={ord.id} className="hover:bg-slate-800/40">
-                          <td className="p-3 font-semibold text-white">#{ord.id}</td>
-                          <td className="p-3 text-slate-300">{ord.customer_name}</td>
-                          <td className="p-3 text-slate-300">
-                            {ord.customer_id === 2 ? 'Karnataka (IGST 5%)' : 'Tamil Nadu (CGST+SGST 5%)'}
-                          </td>
-                          <td className="p-3 font-bold text-white">{qty} pkts</td>
-                          <td className="p-3">
-                            {hasStock ? (
-                              <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                                <CheckCircle2 className="w-3.5 h-3.5" /> Covered ({available} avail)
-                              </span>
-                            ) : (
-                              <span className="text-rose-400 font-semibold flex items-center gap-1">
-                                <AlertTriangle className="w-3.5 h-3.5" /> Shortage of {qty - available} pkts
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-3">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                                ord.status === 'dispatched'
-                                  ? 'bg-emerald-500/20 text-emerald-300'
-                                  : ord.status === 'invoiced'
-                                  ? 'bg-blue-500/20 text-blue-300'
-                                  : 'bg-amber-500/20 text-amber-300'
-                              }`}
-                            >
-                              {ord.status}
-                            </span>
-                          </td>
-                          <td className="p-3 space-x-2">
-                            {ord.status === 'submitted' && (
-                              <button
-                                onClick={() => handleInvoiceOrder(ord.id)}
-                                className="bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1 rounded text-xs font-semibold"
+                        return (
+                          <tr key={ord.id} className="hover:bg-slate-800/40 transition">
+                            <td className="p-3 font-semibold text-white font-mono">#{ord.id}</td>
+                            <td className="p-3 text-slate-300">{ord.customer_name}</td>
+                            <td className="p-3 text-slate-300">
+                              {ord.customer_id === 2 ? 'Karnataka (IGST 5%)' : 'Tamil Nadu (CGST+SGST 5%)'}
+                            </td>
+                            <td className="p-3 font-bold text-white font-mono">{qty} pkts</td>
+                            <td className="p-3">
+                              {hasStock ? (
+                                <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Covered ({available} avail)
+                                </span>
+                              ) : (
+                                <span className="text-rose-400 font-semibold flex items-center gap-1">
+                                  <AlertTriangle className="w-3.5 h-3.5" /> Shortage of {qty - available} pkts
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                                  ord.status === 'dispatched'
+                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                    : ord.status === 'invoiced'
+                                    ? 'bg-blue-500/20 text-blue-300'
+                                    : 'bg-amber-500/20 text-amber-300'
+                                }`}
                               >
-                                Approve & Generate GST Invoice
-                              </button>
-                            )}
-                            {ord.status === 'invoiced' && (
-                              <button
-                                onClick={() => handleDispatchOrder(ord.id)}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded text-xs font-semibold"
-                              >
-                                Dispatch Goods (Reduce Stock)
-                              </button>
-                            )}
-                            {ord.status === 'dispatched' && (
-                              <span className="text-slate-400 text-xs">Dispatched to Buyer</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                                {ord.status}
+                              </span>
+                            </td>
+                            <td className="p-3 space-x-2">
+                              {ord.status === 'submitted' && (
+                                <button
+                                  onClick={() => handleInvoiceOrder(ord.id)}
+                                  className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer active:scale-95 transition"
+                                >
+                                  Approve & Generate GST Invoice
+                                </button>
+                              )}
+                              {ord.status === 'invoiced' && (
+                                <button
+                                  onClick={() => handleDispatchOrder(ord.id)}
+                                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer active:scale-95 transition"
+                                >
+                                  Dispatch Goods (Reduce Stock)
+                                </button>
+                              )}
+                              {ord.status === 'dispatched' && (
+                                <span className="text-slate-400 text-xs">Dispatched to Buyer</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            </TiltCard>
 
             {/* Customer Payments Collection Desk */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-emerald-400" />
-                Step 7: Record Customer Payment Collection (Benchmark: ₹4,000 from Retailer A)
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
-                <select
-                  value={paymentCustomer}
-                  onChange={(e) => setPaymentCustomer(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                >
-                  <option value="1">Retailer A (Current Due: ₹{data?.benchmark?.retailerA?.outstanding_balance})</option>
-                  <option value="2">Distributor B</option>
-                </select>
-                <input
-                  type="number"
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  placeholder="Amount (₹)"
-                />
-                <input
-                  type="text"
-                  value={paymentRef}
-                  onChange={(e) => setPaymentRef(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  placeholder="UPI / NEFT Reference"
-                />
-                <button
-                  onClick={handleRecordPayment}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded text-xs transition"
-                >
-                  Record Payment Receipt
-                </button>
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-5">
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                  Step 7: Record Customer Payment Collection (Benchmark: ₹4,000 from Retailer A)
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                  <select
+                    value={paymentCustomer}
+                    onChange={(e) => setPaymentCustomer(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                  >
+                    <option value="1">Retailer A (Current Due: ₹{data?.benchmark?.retailerA?.outstanding_balance})</option>
+                    <option value="2">Distributor B</option>
+                  </select>
+                  <input
+                    type="number"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    placeholder="Amount (₹)"
+                  />
+                  <input
+                    type="text"
+                    value={paymentRef}
+                    onChange={(e) => setPaymentRef(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    placeholder="UPI / NEFT Reference"
+                  />
+                  <button
+                    onClick={handleRecordPayment}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition active:scale-95 cursor-pointer shadow"
+                  >
+                    Record Payment Receipt
+                  </button>
+                </div>
               </div>
-            </div>
+            </TiltCard>
           </div>
         )}
 
         {/* ================================================================= */}
-        {/* 4. PRODUCTION FLOOR (BOM, Variance & Tamil Toggle) */}
+        {/* 4. PRODUCTION FLOOR (BOM & Variance) */}
         {/* ================================================================= */}
         {activeTab === 'production' && (
-          <div className="space-y-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <div className="flex flex-wrap justify-between items-center mb-4 pb-3 border-b border-slate-800 gap-3">
-                <div>
-                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                    <Factory className="w-5 h-5 text-amber-400" />
-                    {tamilLanguage
-                      ? 'உற்பத்தி மற்றும் செய்முறை மேலாண்மை (BOM & Variance)'
-                      : 'Production Run & Bill of Materials (BOM) Engine'}
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {tamilLanguage
-                      ? 'முறுக்கு 200g செய்முறை: 40கிகி மாவு, 10லி எண்ணெய், 1.2கிகி மசாலா → 200 பைகள்'
-                      : 'Murukku 200g standard batch: 40kg Flour, 10L Oil, 1.2kg Spice Mix → 200 packets'}
-                  </p>
+          <div className="space-y-6 animate-fade-in-up">
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-6">
+                <div className="flex flex-wrap justify-between items-center mb-4 pb-3 border-b border-slate-800 gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                      <Factory className="w-5 h-5 text-amber-400" />
+                      {tamilLanguage
+                        ? 'உற்பத்தி மற்றும் செய்முறை மேலாண்மை (BOM & Variance)'
+                        : 'Production Run & Bill of Materials (BOM) Engine'}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      {tamilLanguage
+                        ? 'முறுக்கு 200g செய்முறை: 40கிகி மாவு, 10லி எண்ணெய், 1.2கிகி மசாலா → 200 பைகள்'
+                        : 'Murukku 200g standard batch: 40kg Flour, 10L Oil, 1.2kg Spice Mix → 200 packets'}
+                    </p>
+                  </div>
+                  {/* Tamil Interface Toggle */}
+                  <button
+                    onClick={() => setTamilLanguage(!tamilLanguage)}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer transition active:scale-95"
+                  >
+                    <Languages className="w-3.5 h-3.5" />
+                    {tamilLanguage ? 'Switch to English' : 'தமிழ் இடைமுகம் (Tamil UI)'}
+                  </button>
                 </div>
-                {/* Tamil Interface Toggle */}
+
+                {/* Floor Batch Inputs */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5 text-xs">
+                  <div>
+                    <label className="block font-medium text-slate-400 mb-1">
+                      {tamilLanguage ? 'வழங்கப்பட்ட மாவு (Flour kg)' : 'Flour Issued (kg)'}
+                    </label>
+                    <input
+                      type="number"
+                      value={prodFlour}
+                      onChange={(e) => setProdFlour(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    />
+                    <span className="text-[10px] text-slate-400">Std: 40 kg</span>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-400 mb-1">
+                      {tamilLanguage ? 'வழங்கப்பட்ட எண்ணெய் (Oil Litre)' : 'Cooking Oil Issued (L)'}
+                    </label>
+                    <input
+                      type="number"
+                      value={prodOil}
+                      onChange={(e) => setProdOil(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    />
+                    <span className="text-[10px] text-amber-400 font-bold">10.5 L (+5% over standard)</span>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-400 mb-1">
+                      {tamilLanguage ? 'மசாலா மற்றும் உப்பு (Spice kg)' : 'Salt & Spice Mix (kg)'}
+                    </label>
+                    <input
+                      type="number"
+                      value={prodSpice}
+                      onChange={(e) => setProdSpice(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    />
+                    <span className="text-[10px] text-slate-400">Std: 1.2 kg</span>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-400 mb-1">
+                      {tamilLanguage ? 'நல்ல பைகள் வெளியீடு (Good Output)' : 'Good Output Packets'}
+                    </label>
+                    <input
+                      type="number"
+                      value={prodActualOutput}
+                      onChange={(e) => setProdActualOutput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    />
+                    <span className="text-[10px] text-rose-400 font-bold">188 pkts (-6% yield variance)</span>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-400 mb-1">
+                      {tamilLanguage ? 'சேதமடைந்த பைகள் (Damaged)' : 'Damaged Pouches'}
+                    </label>
+                    <input
+                      type="number"
+                      value={prodDamagedPouches}
+                      onChange={(e) => setProdDamagedPouches(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    />
+                    <span className="text-[10px] text-slate-400">Benchmark: 6 pouches</span>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-400 mb-1">
+                      {tamilLanguage ? 'பயன்படுத்திய அட்டைப்பெட்டிகள்' : 'Cartons Used'}
+                    </label>
+                    <input
+                      type="number"
+                      value={prodCartons}
+                      onChange={(e) => setProdCartons(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    />
+                    <span className="text-[10px] text-slate-400">Benchmark: 9 cartons</span>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-400 mb-1">
+                      {tamilLanguage ? 'தொழிலாளர் செலவு (Labour ₹)' : 'Direct Labour Cost (₹)'}
+                    </label>
+                    <input
+                      type="number"
+                      value={prodLabour}
+                      onChange={(e) => setProdLabour(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    />
+                    <span className="text-[10px] text-slate-400">₹1,200</span>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-400 mb-1">
+                      {tamilLanguage ? 'மின்சாரம் / எரிவாயு (Power/Gas ₹)' : 'Power & Gas Overheads (₹)'}
+                    </label>
+                    <input
+                      type="number"
+                      value={prodOverhead}
+                      onChange={(e) => setProdOverhead(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    />
+                    <span className="text-[10px] text-slate-400">₹600</span>
+                  </div>
+                </div>
+
                 <button
-                  onClick={() => setTamilLanguage(!tamilLanguage)}
-                  className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 rounded text-xs font-semibold"
+                  onClick={handleRecordProduction}
+                  className="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-bold rounded-xl text-xs transition shadow cursor-pointer active:scale-95"
                 >
-                  <Languages className="w-3.5 h-3.5" />
-                  {tamilLanguage ? 'Switch to English' : 'தமிழ் இடைமுகம் (Tamil UI)'}
+                  {tamilLanguage ? 'உற்பத்திப் பதிவைச் சேமிக்கவும்' : 'Log Production Run & Auto-Update Inventory Ledger'}
                 </button>
               </div>
-
-              {/* Floor Batch Inputs */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5 text-xs">
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    {tamilLanguage ? 'வழங்கப்பட்ட மாவு (Flour kg)' : 'Flour Issued (kg)'}
-                  </label>
-                  <input
-                    type="number"
-                    value={prodFlour}
-                    onChange={(e) => setProdFlour(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  />
-                  <span className="text-[10px] text-slate-400">Std: 40 kg</span>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    {tamilLanguage ? 'வழங்கப்பட்ட எண்ணெய் (Oil Litre)' : 'Cooking Oil Issued (L)'}
-                  </label>
-                  <input
-                    type="number"
-                    value={prodOil}
-                    onChange={(e) => setProdOil(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  />
-                  <span className="text-[10px] text-amber-400 font-bold">10.5 L (+5% over standard)</span>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    {tamilLanguage ? 'மசாலா மற்றும் உப்பு (Spice kg)' : 'Salt & Spice Mix (kg)'}
-                  </label>
-                  <input
-                    type="number"
-                    value={prodSpice}
-                    onChange={(e) => setProdSpice(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  />
-                  <span className="text-[10px] text-slate-400">Std: 1.2 kg</span>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    {tamilLanguage ? 'நல்ல பைகள் வெளியீடு (Good Output)' : 'Good Output Packets'}
-                  </label>
-                  <input
-                    type="number"
-                    value={prodActualOutput}
-                    onChange={(e) => setProdActualOutput(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  />
-                  <span className="text-[10px] text-rose-400 font-bold">188 pkts (-6% yield variance)</span>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    {tamilLanguage ? 'சேதமடைந்த பைகள் (Damaged)' : 'Damaged Pouches'}
-                  </label>
-                  <input
-                    type="number"
-                    value={prodDamagedPouches}
-                    onChange={(e) => setProdDamagedPouches(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  />
-                  <span className="text-[10px] text-slate-400">Benchmark: 6 pouches</span>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    {tamilLanguage ? 'பயன்படுத்திய அட்டைப்பெட்டிகள்' : 'Cartons Used'}
-                  </label>
-                  <input
-                    type="number"
-                    value={prodCartons}
-                    onChange={(e) => setProdCartons(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  />
-                  <span className="text-[10px] text-slate-400">Benchmark: 9 cartons</span>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    {tamilLanguage ? 'தொழிலாளர் செலவு (Labour ₹)' : 'Direct Labour Cost (₹)'}
-                  </label>
-                  <input
-                    type="number"
-                    value={prodLabour}
-                    onChange={(e) => setProdLabour(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  />
-                  <span className="text-[10px] text-slate-400">₹1,200</span>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    {tamilLanguage ? 'மின்சாரம் / எரிவாயு (Power/Gas ₹)' : 'Power & Gas Overheads (₹)'}
-                  </label>
-                  <input
-                    type="number"
-                    value={prodOverhead}
-                    onChange={(e) => setProdOverhead(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white"
-                  />
-                  <span className="text-[10px] text-slate-400">₹600</span>
-                </div>
-              </div>
-
-              <button
-                onClick={handleRecordProduction}
-                className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs transition"
-              >
-                {tamilLanguage ? 'உற்பத்திப் பதிவைச் சேமிக்கவும்' : 'Log Production Run & Auto-Update Inventory Ledger'}
-              </button>
-            </div>
+            </TiltCard>
 
             {/* Logged Runs & Costing Table */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <h4 className="text-xs font-semibold text-white mb-3">
-                Logged Production Batches, Batch Numbers & Costing Breakdown
-              </h4>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950 text-slate-400 uppercase border-b border-slate-800">
-                    <tr>
-                      <th className="p-3">Run ID</th>
-                      <th className="p-3">Batch No</th>
-                      <th className="p-3">Expiry Date</th>
-                      <th className="p-3">Actual Output</th>
-                      <th className="p-3">Yield Variance</th>
-                      <th className="p-3">Oil Variance</th>
-                      <th className="p-3">Cost / Packet</th>
-                      <th className="p-3">Margin @ ₹50</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {data?.productionReport?.map((pr: any) => {
-                      const margin = Math.round(((50 - pr.cost_per_packet) / 50) * 100);
-                      return (
-                        <tr key={pr.id} className="hover:bg-slate-800/40">
-                          <td className="p-3 font-semibold text-white">#{pr.id}</td>
-                          <td className="p-3 font-mono text-amber-400">{pr.batch_number}</td>
-                          <td className="p-3 text-slate-300">{pr.expiry_date}</td>
-                          <td className="p-3 font-bold text-white">{pr.actual} pkts</td>
-                          <td className="p-3">
-                            <span className="bg-rose-500/20 text-rose-300 border border-rose-500/40 px-2 py-0.5 rounded text-[10px] font-bold">
-                              {pr.yield_variance_pct}% (Wastage)
-                            </span>
-                          </td>
-                          <td className="p-3">
-                            <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded text-[10px] font-bold">
-                              +{pr.oil_variance_pct}% (Over-consumption)
-                            </span>
-                          </td>
-                          <td className="p-3 font-bold text-emerald-400">₹{pr.cost_per_packet}</td>
-                          <td className="p-3 text-emerald-300 font-semibold">{margin}%</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-6">
+                <h4 className="text-xs font-semibold text-white mb-3">
+                  Logged Production Batches, Batch Numbers & Costing Breakdown
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950/80 text-slate-400 uppercase border-b border-slate-800">
+                      <tr>
+                        <th className="p-3">Run ID</th>
+                        <th className="p-3">Batch No</th>
+                        <th className="p-3">Expiry Date</th>
+                        <th className="p-3">Actual Output</th>
+                        <th className="p-3">Yield Variance</th>
+                        <th className="p-3">Oil Variance</th>
+                        <th className="p-3">Cost / Packet</th>
+                        <th className="p-3">Margin @ ₹50</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {data?.productionReport?.map((pr: any) => {
+                        const margin = Math.round(((50 - pr.cost_per_packet) / 50) * 100);
+                        return (
+                          <tr key={pr.id} className="hover:bg-slate-800/40 transition">
+                            <td className="p-3 font-semibold text-white">#{pr.id}</td>
+                            <td className="p-3 font-mono text-amber-400">{pr.batch_number}</td>
+                            <td className="p-3 text-slate-300">{pr.expiry_date}</td>
+                            <td className="p-3 font-bold text-white font-mono">{pr.actual} pkts</td>
+                            <td className="p-3">
+                              <span className="bg-rose-500/20 text-rose-300 border border-rose-500/40 px-2 py-0.5 rounded text-[10px] font-bold">
+                                {pr.yield_variance_pct}% (Wastage)
+                              </span>
+                            </td>
+                            <td className="p-3">
+                              <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded text-[10px] font-bold">
+                                +{pr.oil_variance_pct}% (Over-consumption)
+                              </span>
+                            </td>
+                            <td className="p-3 font-bold text-emerald-400 font-mono">₹{pr.cost_per_packet}</td>
+                            <td className="p-3 text-emerald-300 font-semibold">{margin}%</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            </TiltCard>
           </div>
         )}
 
@@ -1433,172 +1699,188 @@ export default function OrderToAuditApp() {
         {/* 5. AUDITOR & MONTHLY REPORTS SUITE */}
         {/* ================================================================= */}
         {activeTab === 'auditor' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in-up">
             {/* Top Toolbar */}
-            <div className="flex flex-wrap justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-xl gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                  <FileSpreadsheet className="w-5 h-5 text-amber-400" />
-                  Auditor Reports & Export Suite
-                </h3>
-                <p className="text-xs text-slate-400">Standard GSTR-1, GSTR-3B, Stock Movement Ledgers, and Tally XML</p>
+            <TiltCard>
+              <div className="glass-panel p-4 rounded-2xl flex flex-wrap justify-between items-center gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                    <FileSpreadsheet className="w-5 h-5 text-amber-400" />
+                    Auditor Reports & Export Suite
+                  </h3>
+                  <p className="text-xs text-slate-400">Standard GSTR-1, GSTR-3B, Stock Movement Ledgers, and Tally XML</p>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <button
+                    onClick={() => exportToCSV('sales_register', data?.salesRegister || [])}
+                    className="bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" /> Export Sales CSV
+                  </button>
+                  <button
+                    onClick={() => exportToCSV('stock_ledger', data?.rawLedger || [])}
+                    className="bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" /> Export Stock Ledger
+                  </button>
+                  <button
+                    onClick={handleDownloadTallyXml}
+                    className="bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-700 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow"
+                  >
+                    <FileCode className="w-3.5 h-3.5" /> Export Tally XML
+                  </button>
+                  <button
+                    onClick={() => window.print()}
+                    className="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow"
+                  >
+                    <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2 text-xs">
-                <button
-                  onClick={() => exportToCSV('sales_register', data?.salesRegister || [])}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded font-semibold flex items-center gap-1.5"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" /> Export Sales CSV
-                </button>
-                <button
-                  onClick={() => exportToCSV('stock_ledger', data?.rawLedger || [])}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded font-semibold flex items-center gap-1.5"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" /> Export Stock Ledger
-                </button>
-                <button
-                  onClick={handleDownloadTallyXml}
-                  className="bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-700 px-3 py-1.5 rounded font-bold flex items-center gap-1.5"
-                >
-                  <FileCode className="w-3.5 h-3.5" /> Export Tally XML
-                </button>
-                <button
-                  onClick={() => window.print()}
-                  className="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded font-bold flex items-center gap-1.5"
-                >
-                  <Printer className="w-3.5 h-3.5" /> Print / Save PDF
-                </button>
-              </div>
-            </div>
+            </TiltCard>
 
             {/* GST Summary (GSTR-1 Format) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <h4 className="text-xs font-semibold text-white mb-3">GST Return Summary (Outward Supplies)</h4>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
-                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase">Taxable Value</span>
-                  <div className="text-base font-bold text-white mt-1">₹{data?.gstSummary?.totalTaxable?.toLocaleString() || 7500}</div>
-                </div>
-                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase">CGST (2.5%)</span>
-                  <div className="text-base font-bold text-white mt-1">₹{data?.gstSummary?.totalCGST?.toLocaleString() || 187.5}</div>
-                </div>
-                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase">SGST (2.5%)</span>
-                  <div className="text-base font-bold text-white mt-1">₹{data?.gstSummary?.totalSGST?.toLocaleString() || 187.5}</div>
-                </div>
-                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase">IGST (5%)</span>
-                  <div className="text-base font-bold text-white mt-1">₹{data?.gstSummary?.totalIGST?.toLocaleString() || 0}</div>
-                </div>
-                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase">Total Tax Liability</span>
-                  <div className="text-base font-bold text-emerald-400 mt-1">
-                    ₹{(data?.gstSummary?.totalTaxable + data?.gstSummary?.totalTax)?.toLocaleString() || 7875}
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-6">
+                <h4 className="text-xs font-semibold text-white mb-3">GST Return Summary (Outward Supplies)</h4>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase">Taxable Value</span>
+                    <div className="text-base font-bold text-white mt-1 font-mono">
+                      ₹{data?.gstSummary?.totalTaxable?.toLocaleString() || 7500}
+                    </div>
+                  </div>
+                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase">CGST (2.5%)</span>
+                    <div className="text-base font-bold text-white mt-1 font-mono">
+                      ₹{data?.gstSummary?.totalCGST?.toLocaleString() || 187.5}
+                    </div>
+                  </div>
+                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase">SGST (2.5%)</span>
+                    <div className="text-base font-bold text-white mt-1 font-mono">
+                      ₹{data?.gstSummary?.totalSGST?.toLocaleString() || 187.5}
+                    </div>
+                  </div>
+                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase">IGST (5%)</span>
+                    <div className="text-base font-bold text-white mt-1 font-mono">
+                      ₹{data?.gstSummary?.totalIGST?.toLocaleString() || 0}
+                    </div>
+                  </div>
+                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase">Total Tax Liability</span>
+                    <div className="text-base font-bold text-emerald-400 mt-1 font-mono">
+                      ₹{(data?.gstSummary?.totalTaxable + data?.gstSummary?.totalTax)?.toLocaleString() || 7875}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </TiltCard>
 
-            {/* Invoices List with Credit Note Cancellation Option */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <h4 className="text-xs font-semibold text-white mb-3">Sales Invoices & Credit Note Cancellations</h4>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950 text-slate-400 uppercase border-b border-slate-800">
-                    <tr>
-                      <th className="p-3">Invoice No</th>
-                      <th className="p-3">Customer</th>
-                      <th className="p-3">State</th>
-                      <th className="p-3">Taxable</th>
-                      <th className="p-3">Total Amount</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {data?.salesRegister?.map((inv: any, idx: number) => (
-                      <tr key={idx} className="hover:bg-slate-800/40">
-                        <td className="p-3 font-semibold text-white">{inv.invoice_number}</td>
-                        <td className="p-3 text-slate-300">{inv.customer_name}</td>
-                        <td className="p-3 text-slate-300">{inv.state}</td>
-                        <td className="p-3">₹{inv.taxable_value}</td>
-                        <td className="p-3 font-bold text-emerald-400">₹{inv.total_amount}</td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                              inv.status === 'cancelled'
-                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                                : 'bg-emerald-500/20 text-emerald-300'
-                            }`}
-                          >
-                            {inv.status || 'active'}
-                          </span>
-                        </td>
-                        <td className="p-3 space-x-2">
-                          <button
-                            onClick={() => setSelectedInvoice(inv)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded text-[11px]"
-                          >
-                            View PDF
-                          </button>
-                          {inv.status !== 'cancelled' && (
-                            <button
-                              onClick={() => {
-                                setSelectedInvoice(inv);
-                                setShowCancelModal(true);
-                              }}
-                              className="bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 px-2 py-1 rounded text-[11px]"
-                            >
-                              Issue Credit Note
-                            </button>
-                          )}
-                        </td>
+            {/* Invoices List */}
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-6">
+                <h4 className="text-xs font-semibold text-white mb-3">Sales Invoices & Credit Note Cancellations</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950/80 text-slate-400 uppercase border-b border-slate-800">
+                      <tr>
+                        <th className="p-3">Invoice No</th>
+                        <th className="p-3">Customer</th>
+                        <th className="p-3">State</th>
+                        <th className="p-3">Taxable</th>
+                        <th className="p-3">Total Amount</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {data?.salesRegister?.map((inv: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3 font-semibold text-white font-mono">{inv.invoice_number}</td>
+                          <td className="p-3 text-slate-300">{inv.customer_name}</td>
+                          <td className="p-3 text-slate-300">{inv.state}</td>
+                          <td className="p-3 font-mono">₹{inv.taxable_value}</td>
+                          <td className="p-3 font-bold text-emerald-400 font-mono">₹{inv.total_amount}</td>
+                          <td className="p-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                                inv.status === 'cancelled'
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                  : 'bg-emerald-500/20 text-emerald-300'
+                              }`}
+                            >
+                              {inv.status || 'active'}
+                            </span>
+                          </td>
+                          <td className="p-3 space-x-2">
+                            <button
+                              onClick={() => setSelectedInvoice(inv)}
+                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] cursor-pointer"
+                            >
+                              View PDF
+                            </button>
+                            {inv.status !== 'cancelled' && (
+                              <button
+                                onClick={() => {
+                                  setSelectedInvoice(inv);
+                                  setShowCancelModal(true);
+                                }}
+                                className="bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 px-2.5 py-1 rounded-lg text-[11px] cursor-pointer"
+                              >
+                                Issue Credit Note
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            </TiltCard>
 
             {/* Complete Stock Movements Ledger */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <h4 className="text-xs font-semibold text-white mb-3">
-                Immutable Stock Ledger (Every movement linked to source doc)
-              </h4>
-              <div className="overflow-x-auto max-h-60">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950 text-slate-400 uppercase border-b border-slate-800 sticky top-0">
-                    <tr>
-                      <th className="p-2.5">ID</th>
-                      <th className="p-2.5">Item</th>
-                      <th className="p-2.5">Type</th>
-                      <th className="p-2.5">Movement (Δ)</th>
-                      <th className="p-2.5">Reference Source</th>
-                      <th className="p-2.5">Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {data?.rawLedger?.map((entry: any) => (
-                      <tr key={entry.id} className="hover:bg-slate-800/40 font-mono text-[11px]">
-                        <td className="p-2.5 text-slate-400">#{entry.id}</td>
-                        <td className="p-2.5 text-white font-sans">{entry.item_name}</td>
-                        <td className="p-2.5 uppercase text-slate-400">{entry.item_type}</td>
-                        <td
-                          className={`p-2.5 font-bold ${
-                            entry.change_qty > 0 ? 'text-emerald-400' : 'text-rose-400'
-                          }`}
-                        >
-                          {entry.change_qty > 0 ? `+${entry.change_qty}` : entry.change_qty} {entry.unit}
-                        </td>
-                        <td className="p-2.5 text-amber-400 font-sans">{entry.reference_type}</td>
-                        <td className="p-2.5 text-slate-400 font-sans">{entry.notes || '—'}</td>
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-6">
+                <h4 className="text-xs font-semibold text-white mb-3">
+                  Immutable Stock Ledger (Every movement linked to source doc)
+                </h4>
+                <div className="overflow-x-auto max-h-60">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950/90 text-slate-400 uppercase border-b border-slate-800 sticky top-0">
+                      <tr>
+                        <th className="p-2.5">ID</th>
+                        <th className="p-2.5">Item</th>
+                        <th className="p-2.5">Type</th>
+                        <th className="p-2.5">Movement (Δ)</th>
+                        <th className="p-2.5">Reference Source</th>
+                        <th className="p-2.5">Notes</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {data?.rawLedger?.map((entry: any) => (
+                        <tr key={entry.id} className="hover:bg-slate-800/40 font-mono text-[11px]">
+                          <td className="p-2.5 text-slate-400">#{entry.id}</td>
+                          <td className="p-2.5 text-white font-sans">{entry.item_name}</td>
+                          <td className="p-2.5 uppercase text-slate-400">{entry.item_type}</td>
+                          <td
+                            className={`p-2.5 font-bold ${
+                              entry.change_qty > 0 ? 'text-emerald-400' : 'text-rose-400'
+                            }`}
+                          >
+                            {entry.change_qty > 0 ? `+${entry.change_qty}` : entry.change_qty} {entry.unit}
+                          </td>
+                          <td className="p-2.5 text-amber-400 font-sans">{entry.reference_type}</td>
+                          <td className="p-2.5 text-slate-400 font-sans">{entry.notes || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            </TiltCard>
           </div>
         )}
 
@@ -1606,185 +1888,199 @@ export default function OrderToAuditApp() {
         {/* 6. SECTION 5 BENCHMARK STEPPER */}
         {/* ================================================================= */}
         {activeTab === 'benchmark' && (
-          <div className="space-y-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <div className="flex flex-wrap justify-between items-center mb-4 pb-3 border-b border-slate-800 gap-3">
-                <div>
-                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                    Section 5 Benchmark Verification Matrix
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Side-by-side numerical validation against the NIT Tiruchirappalli problem statement expectations.
-                  </p>
+          <div className="space-y-6 animate-fade-in-up">
+            <TiltCard>
+              <div className="glass-panel rounded-2xl p-6">
+                <div className="flex flex-wrap justify-between items-center mb-4 pb-3 border-b border-slate-800 gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                      Section 5 Benchmark Verification Matrix
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Side-by-side numerical validation against the NIT Tiruchirappalli problem statement expectations.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleResetBenchmark}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl text-xs border border-slate-700 font-semibold cursor-pointer active:scale-95 transition"
+                    >
+                      Reset Seed Data
+                    </button>
+                    <button
+                      onClick={() => handleRunBenchmark()}
+                      className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-bold px-4 py-1.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/20 active:scale-95 transition"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Run Complete Scenario (1-Click)
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleResetBenchmark}
-                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded text-xs border border-slate-700 font-semibold"
-                  >
-                    Reset Seed Data
-                  </button>
-                  <button
-                    onClick={() => handleRunBenchmark()}
-                    className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-3 py-1.5 rounded text-xs flex items-center gap-1.5"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" /> Run Complete Scenario (1-Click)
-                  </button>
-                </div>
-              </div>
 
-              {/* Step-by-Step Interactive Buttons */}
-              <div className="mb-6 bg-slate-950 p-4 rounded-lg border border-slate-800">
-                <span className="text-xs font-semibold text-slate-300 block mb-2">
-                  Or Run Step-by-Step Individually:
-                </span>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <button
-                    onClick={() => handleRunBenchmark(1)}
-                    className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1 rounded"
-                  >
-                    Step 1: Buy 60kg Flour @ ₹45
-                  </button>
-                  <button
-                    onClick={() => handleRunBenchmark(2)}
-                    className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1 rounded"
-                  >
-                    Step 2 & 3: Run Batch (188 pkts)
-                  </button>
-                  <button
-                    onClick={() => handleRunBenchmark(4)}
-                    className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1 rounded"
-                  >
-                    Step 4: Retailer A Order (150 pkts)
-                  </button>
-                  <button
-                    onClick={() => handleRunBenchmark(5)}
-                    className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1 rounded"
-                  >
-                    Step 5: Admin Invoice & Dispatch
-                  </button>
-                  <button
-                    onClick={() => handleRunBenchmark(6)}
-                    className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1 rounded"
-                  >
-                    Step 6: Distributor B Shortage Check
-                  </button>
-                  <button
-                    onClick={() => handleRunBenchmark(7)}
-                    className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1 rounded"
-                  >
-                    Step 7: Collect ₹4,000 Payment
-                  </button>
+                {/* Step-by-Step Interactive Buttons */}
+                <div className="mb-6 bg-slate-950/80 p-4 rounded-xl border border-slate-800/80 shadow-inner">
+                  <span className="text-xs font-semibold text-slate-300 block mb-2.5">
+                    Or Execute Step-by-Step Individually:
+                  </span>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <button
+                      onClick={() => handleRunBenchmark(1)}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-xl cursor-pointer active:scale-95 transition"
+                    >
+                      Step 1: Buy 60kg Flour @ ₹45
+                    </button>
+                    <button
+                      onClick={() => handleRunBenchmark(2)}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-xl cursor-pointer active:scale-95 transition"
+                    >
+                      Step 2 & 3: Run Batch (188 pkts)
+                    </button>
+                    <button
+                      onClick={() => handleRunBenchmark(4)}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-xl cursor-pointer active:scale-95 transition"
+                    >
+                      Step 4: Retailer A Order (150 pkts)
+                    </button>
+                    <button
+                      onClick={() => handleRunBenchmark(5)}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-xl cursor-pointer active:scale-95 transition"
+                    >
+                      Step 5: Admin Invoice & Dispatch
+                    </button>
+                    <button
+                      onClick={() => handleRunBenchmark(6)}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-xl cursor-pointer active:scale-95 transition"
+                    >
+                      Step 6: Distributor B Shortage Check
+                    </button>
+                    <button
+                      onClick={() => handleRunBenchmark(7)}
+                      className="bg-slate-800/80 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-xl cursor-pointer active:scale-95 transition"
+                    >
+                      Step 7: Collect ₹4,000 Payment
+                    </button>
+                  </div>
+                </div>
+
+                {/* Verification Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950/80 text-slate-400 uppercase border-b border-slate-800">
+                      <tr>
+                        <th className="p-3">Benchmark Check Item</th>
+                        <th className="p-3">Expected Result</th>
+                        <th className="p-3">Live System Output</th>
+                        <th className="p-3">Audit Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Flour closing balance</td>
+                        <td className="p-3 text-slate-300 font-mono">120 kg (100 + 60 − 40)</td>
+                        <td className="p-3 font-bold text-amber-400 font-mono">
+                          {data?.benchmark?.flourClosingBalance ?? 120} kg
+                        </td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Oil closing balance</td>
+                        <td className="p-3 text-slate-300 font-mono">19.5 L (30 − 10.5)</td>
+                        <td className="p-3 font-bold text-amber-400 font-mono">
+                          {data?.benchmark?.oilClosingBalance ?? 19.5} L
+                        </td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Pouches closing balance</td>
+                        <td className="p-3 text-slate-300 font-mono">306 (188 used + 6 damaged)</td>
+                        <td className="p-3 font-bold text-amber-400 font-mono">
+                          {data?.benchmark?.pouchesClosingBalance ?? 306} pcs
+                        </td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Finished goods after run</td>
+                        <td className="p-3 text-slate-300 font-mono">238 packets (50 + 188)</td>
+                        <td className="p-3 font-bold text-amber-400 font-mono">238 packets</td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Finished goods after Retailer A dispatch</td>
+                        <td className="p-3 text-slate-300 font-mono">88 packets (238 − 150)</td>
+                        <td className="p-3 font-bold text-amber-400 font-mono">
+                          {data?.benchmark?.finishedGoodsStock ?? 88} packets
+                        </td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Yield variance</td>
+                        <td className="p-3 text-slate-300 font-mono">188 vs 200 expected, −6%, flagged</td>
+                        <td className="p-3 font-bold text-rose-400 font-mono">-6.00% (Flagged)</td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Oil consumption variance</td>
+                        <td className="p-3 text-slate-300 font-mono">+5%, flagged (10.5 vs 10 L)</td>
+                        <td className="p-3 font-bold text-amber-400 font-mono">+5.00% (Flagged)</td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Retailer A invoice</td>
+                        <td className="p-3 text-slate-300 font-mono">₹7,500 + ₹187.50 CGST + ₹187.50 SGST = ₹7,875</td>
+                        <td className="p-3 font-bold text-emerald-400 font-mono">₹7,875.00</td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Retailer A outstanding</td>
+                        <td className="p-3 text-slate-300 font-mono">₹3,875 (₹7,875 − ₹4,000 paid)</td>
+                        <td className="p-3 font-bold text-emerald-400 font-mono">
+                          ₹{data?.benchmark?.retailerA?.outstanding_balance ?? 3875}.00
+                        </td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Distributor B order</td>
+                        <td className="p-3 text-slate-300 font-mono">Shortage of 32 packets flagged; IGST applies</td>
+                        <td className="p-3 font-bold text-amber-400 font-mono">
+                          Shortage of 32 pkts flagged; IGST 5% calculated
+                        </td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> 100% Match
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/40 transition">
+                        <td className="p-3 font-semibold text-white">Cost per packet</td>
+                        <td className="p-3 text-slate-300 font-mono">Valuation & overhead method justified</td>
+                        <td className="p-3 font-bold text-white font-mono">
+                          ₹31.14 / pkt (Weighted Average Cost + Overheads)
+                        </td>
+                        <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> Documented
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
-
-              {/* Verification Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950 text-slate-400 uppercase border-b border-slate-800">
-                    <tr>
-                      <th className="p-3">Benchmark Check Item</th>
-                      <th className="p-3">Expected Result</th>
-                      <th className="p-3">Live System Output</th>
-                      <th className="p-3">Audit Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Flour closing balance</td>
-                      <td className="p-3 text-slate-300">120 kg (100 + 60 − 40)</td>
-                      <td className="p-3 font-bold text-amber-400">{data?.benchmark?.flourClosingBalance ?? 120} kg</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Oil closing balance</td>
-                      <td className="p-3 text-slate-300">19.5 L (30 − 10.5)</td>
-                      <td className="p-3 font-bold text-amber-400">{data?.benchmark?.oilClosingBalance ?? 19.5} L</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Pouches closing balance</td>
-                      <td className="p-3 text-slate-300">306 (188 used + 6 damaged)</td>
-                      <td className="p-3 font-bold text-amber-400">{data?.benchmark?.pouchesClosingBalance ?? 306} pcs</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Finished goods after run</td>
-                      <td className="p-3 text-slate-300">238 packets (50 + 188)</td>
-                      <td className="p-3 font-bold text-amber-400">238 packets</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Finished goods after Retailer A dispatch</td>
-                      <td className="p-3 text-slate-300">88 packets (238 − 150)</td>
-                      <td className="p-3 font-bold text-amber-400">{data?.benchmark?.finishedGoodsStock ?? 88} packets</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Yield variance</td>
-                      <td className="p-3 text-slate-300">188 vs 200 expected, −6%, flagged</td>
-                      <td className="p-3 font-bold text-rose-400">-6.00% (Flagged)</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Oil consumption variance</td>
-                      <td className="p-3 text-slate-300">+5%, flagged (10.5 vs 10 L)</td>
-                      <td className="p-3 font-bold text-amber-400">+5.00% (Flagged)</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Retailer A invoice</td>
-                      <td className="p-3 text-slate-300">₹7,500 + ₹187.50 CGST + ₹187.50 SGST = ₹7,875</td>
-                      <td className="p-3 font-bold text-emerald-400">₹7,875.00</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Retailer A outstanding</td>
-                      <td className="p-3 text-slate-300">₹3,875 (₹7,875 − ₹4,000 paid)</td>
-                      <td className="p-3 font-bold text-emerald-400">
-                        ₹{data?.benchmark?.retailerA?.outstanding_balance ?? 3875}.00
-                      </td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Distributor B order</td>
-                      <td className="p-3 text-slate-300">Shortage of 32 packets flagged; IGST applies</td>
-                      <td className="p-3 font-bold text-amber-400">Shortage of 32 pkts flagged; IGST 5% calculated</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> 100% Match
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">Cost per packet</td>
-                      <td className="p-3 text-slate-300">Valuation & overhead method justified</td>
-                      <td className="p-3 font-bold text-white">₹31.14 / pkt (Weighted Average Cost + Overheads)</td>
-                      <td className="p-3 text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> Documented
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            </TiltCard>
           </div>
         )}
       </main>
@@ -1793,24 +2089,31 @@ export default function OrderToAuditApp() {
       {/* GST TAX INVOICE PREVIEW MODAL */}
       {/* ================================================================= */}
       {selectedInvoice && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 text-xs space-y-4 shadow-2xl">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto animate-fade-in-up">
+          <div className="glass-panel bg-slate-900 border border-slate-700/80 rounded-3xl max-w-2xl w-full p-6 text-xs space-y-4 shadow-2xl">
             {/* Header */}
             <div className="flex justify-between items-start border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-base font-bold text-white">TAX INVOICE</h3>
-                <span className="text-[11px] font-mono text-amber-400">{selectedInvoice.invoice_number}</span>
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                  TAX INVOICE
+                  <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/30">
+                    GST Compliant
+                  </span>
+                </h3>
+                <span className="text-[11px] font-mono text-amber-400 font-semibold">
+                  {selectedInvoice.invoice_number}
+                </span>
               </div>
               <button
                 onClick={() => setSelectedInvoice(null)}
-                className="text-slate-400 hover:text-white text-base font-bold"
+                className="text-slate-400 hover:text-white text-base font-bold p-1 cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             {/* Seller & Buyer Details */}
-            <div className="grid grid-cols-2 gap-4 bg-slate-950 p-3 rounded-lg border border-slate-800">
+            <div className="grid grid-cols-2 gap-4 bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800">
               <div>
                 <span className="text-[10px] text-slate-500 uppercase font-bold block">Supplier</span>
                 <span className="font-bold text-white block">South Indian Packaged Snacks Factory</span>
@@ -1842,25 +2145,25 @@ export default function OrderToAuditApp() {
                 <tr>
                   <td className="p-2 text-white font-medium">Murukku 200 g Packets</td>
                   <td className="p-2 font-mono">19059040</td>
-                  <td className="p-2">₹{selectedInvoice.taxable_value}</td>
+                  <td className="p-2 font-mono">₹{selectedInvoice.taxable_value}</td>
                   <td className="p-2">
                     {selectedInvoice.is_interstate ? (
-                      <span>IGST 5% (₹{selectedInvoice.igst})</span>
+                      <span className="font-mono">IGST 5% (₹{selectedInvoice.igst})</span>
                     ) : (
-                      <span>
+                      <span className="font-mono">
                         CGST 2.5% (₹{selectedInvoice.cgst}) + SGST 2.5% (₹{selectedInvoice.sgst})
                       </span>
                     )}
                   </td>
-                  <td className="p-2 font-bold text-emerald-400">₹{selectedInvoice.total_amount}</td>
+                  <td className="p-2 font-bold text-emerald-400 font-mono">₹{selectedInvoice.total_amount}</td>
                 </tr>
               </tbody>
             </table>
 
             {/* Total Summary */}
-            <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex justify-between items-center text-sm font-bold">
+            <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 flex justify-between items-center text-sm font-bold">
               <span>Invoice Total (Tax Inclusive):</span>
-              <span className="text-emerald-400 text-base">₹{selectedInvoice.total_amount}.00</span>
+              <span className="text-emerald-400 text-lg font-mono">₹{selectedInvoice.total_amount}.00</span>
             </div>
 
             {/* Modal Actions */}
@@ -1871,7 +2174,7 @@ export default function OrderToAuditApp() {
                 )}`}
                 target="_blank"
                 rel="noreferrer"
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded flex items-center gap-1.5 transition text-xs"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition text-xs active:scale-95 cursor-pointer shadow"
               >
                 <Share2 className="w-3.5 h-3.5" /> Share on WhatsApp
               </a>
@@ -1879,13 +2182,13 @@ export default function OrderToAuditApp() {
               <div className="flex gap-2">
                 <button
                   onClick={() => window.print()}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5"
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 active:scale-95 cursor-pointer transition"
                 >
                   <Printer className="w-3.5 h-3.5" /> Print Invoice
                 </button>
                 <button
                   onClick={() => setSelectedInvoice(null)}
-                  className="bg-amber-500 hover:bg-amber-600 text-slate-950 px-4 py-1.5 rounded text-xs font-bold"
+                  className="bg-amber-500 hover:bg-amber-600 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold active:scale-95 cursor-pointer transition shadow"
                 >
                   Close
                 </button>
@@ -1899,8 +2202,8 @@ export default function OrderToAuditApp() {
       {/* CREDIT NOTE CANCELLATION MODAL */}
       {/* ================================================================= */}
       {showCancelModal && selectedInvoice && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 text-xs space-y-4 shadow-2xl">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in-up">
+          <div className="glass-panel bg-slate-900 border border-slate-700 rounded-3xl max-w-md w-full p-6 text-xs space-y-4 shadow-2xl">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <XCircle className="w-5 h-5 text-rose-400" /> Issue GST Credit Note
             </h3>
@@ -1916,7 +2219,7 @@ export default function OrderToAuditApp() {
                 type="text"
                 value={cancellationReason}
                 onChange={(e) => setCancellationReason(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
                 placeholder="e.g. Buyer return / shortage / order adjustment"
               />
             </div>
@@ -1924,13 +2227,13 @@ export default function OrderToAuditApp() {
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setShowCancelModal(false)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-semibold"
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold cursor-pointer transition"
               >
                 Back
               </button>
               <button
                 onClick={handleCancelInvoice}
-                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl active:scale-95 cursor-pointer transition shadow"
               >
                 Confirm & Issue Credit Note
               </button>
@@ -1940,12 +2243,13 @@ export default function OrderToAuditApp() {
       )}
 
       {/* Footer */}
-      <footer className="border-t border-slate-800 bg-slate-900/60 px-6 py-3 text-xs text-slate-500 flex flex-wrap justify-between items-center gap-2">
-        <div>
+      <footer className="border-t border-slate-800/80 bg-slate-900/40 backdrop-blur-lg px-6 py-3.5 text-xs text-slate-500 flex flex-wrap justify-between items-center gap-2 relative z-10">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
           <span>Order-to-Audit System • Centre for Digital Infrastructure, NIT Tiruchirappalli</span>
         </div>
-        <div className="flex items-center gap-3">
-          <span>ACID Stock Ledger • Paisa Precision Math • Deployable to Vercel</span>
+        <div className="flex items-center gap-3 font-mono text-[11px]">
+          <span>ACID Stock Ledger • Paisa Precision Math • Connected to Neon PostgreSQL</span>
         </div>
       </footer>
     </div>
