@@ -1,4 +1,4 @@
-# Order-to-Audit System for a Small Food Manufacturer
+# Order-to-Audit System for a Small Food Manufacturer - https://order-to-audit-system.vercel.app/
 **Centre for Digital Infrastructure, NIT Tiruchirappalli — Internship Problem Statement Submission**
 
 A production-ready, full-stack Order-to-Audit System built to run the entire operations of a packaged South Indian snack factory (Murukku, Mixture, Chips, Sweets). The system unifies the **Sales Loop** and **Production Loop** into an immutable inventory ledger backed by **Neon PostgreSQL**, eliminating manual re-entry errors, physical notebooks, and month-end spreadsheet panic.
